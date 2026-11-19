@@ -399,7 +399,7 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
 
     log("Anúncios e criativos")
     ads = []
-    creative_fields = "id,name,thumbnail_url,image_url,body,title,object_type,effective_object_story_id,instagram_permalink_url,video_id,call_to_action_type"
+    creative_fields = "id,name,thumbnail_url,image_url,body,title,object_type,effective_object_story_id,effective_instagram_media_id,instagram_permalink_url,video_id,call_to_action_type"
     try:
         raw_ads = api_all(f"{acct}/ads", {
             "fields": f"id,name,adset_id,campaign_id,status,effective_status,created_time,updated_time,preview_shareable_link,creative.thumbnail_width(600).thumbnail_height(600){{{creative_fields}}}",
@@ -422,6 +422,7 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
                 "id": cr.get("id"), "thumbnail_url": cr.get("thumbnail_url"), "image_url": cr.get("image_url"),
                 "body": (cr.get("body") or "")[:400], "title": cr.get("title"), "object_type": cr.get("object_type"),
                 "instagram_permalink_url": cr.get("instagram_permalink_url"),
+                "instagram_media_id": cr.get("effective_instagram_media_id"),
                 "video_id": cr.get("video_id"), "cta": cr.get("call_to_action_type"),
             },
         })
@@ -643,7 +644,7 @@ def dia_do_valor_fb(end_time: str | None) -> str:
     return (dt.date.fromisoformat(end_time[:10]) - dt.timedelta(days=1)).isoformat()
 
 
-def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
+def fetch_organic(today: dt.date, page_id: str, ig_id: str, midias_anuncio: list | None = None) -> dict:
     out: dict = {
         "generated_at": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
         "facebook": None, "instagram": None, "warnings": [],
@@ -693,9 +694,10 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
                 series = []
                 try:
                     for a, b in daterange_chunks(since_90, today, 90):
+                        # until exclusivo e no máximo hoje: a série termina ontem (dia completo)
                         res = api(f"{page_id}/insights", {
                             "metric": m, "period": "day",
-                            "since": a.isoformat(), "until": (b + dt.timedelta(days=1)).isoformat(),
+                            "since": a.isoformat(), "until": min(b + dt.timedelta(days=1), today).isoformat(),
                         }, token=page_token, retries=2)
                         for d in res.get("data", []):
                             for v in d.get("values", []):
@@ -745,9 +747,10 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
             series = []
             try:
                 for a, b in daterange_chunks(span, today, 30):
+                    # until exclusivo e no máximo hoje: sem o dia de hoje pela metade
                     res = api(f"{ig_id}/insights", {
                         "metric": m, "period": "day",
-                        "since": a.isoformat(), "until": (b + dt.timedelta(days=1)).isoformat(),
+                        "since": a.isoformat(), "until": min(b + dt.timedelta(days=1), today).isoformat(),
                     }, token=ig_tok)
                     for d in res.get("data", []):
                         for v in d.get("values", []):
@@ -831,7 +834,9 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
                     "likes": inum(m.get("like_count")), "comments": inum(m.get("comments_count")),
                     "insights": {},
                 }
-                candidates = ["reach,saved,shares,views,total_interactions", "reach,saved,views", "reach,saved", "reach"]
+                # follows/profile_visits por publicação só existem para feed/carrossel (Reels recusa)
+                candidates = ["reach,saved,shares,views,total_interactions,follows,profile_visits",
+                              "reach,saved,shares,views,total_interactions", "reach,saved,views", "reach,saved", "reach"]
                 for metric_set in candidates:
                     try:
                         res = api(f"{m['id']}/insights", {"metric": metric_set}, token=ig_tok, retries=1)
@@ -842,6 +847,25 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
                 ig["media"].append(item)
         except ApiError as e:
             out["warnings"].append(f"Instagram mídias: {e}")
+        # publicações usadas em anúncios que não estão entre as recentes (até 40)
+        ja = {x["id"] for x in ig["media"]}
+        for mid in [x for x in (midias_anuncio or []) if x and x not in ja][:40]:
+            try:
+                mm = api(mid, {"fields": "id,caption,media_type,media_product_type,timestamp,permalink,thumbnail_url,media_url,like_count,comments_count"}, token=ig_tok, retries=1)
+            except ApiError:
+                continue
+            item = {"id": mm.get("id"), "caption": (mm.get("caption") or "")[:220], "media_type": mm.get("media_type"),
+                    "product_type": mm.get("media_product_type"), "timestamp": mm.get("timestamp"), "permalink": mm.get("permalink"),
+                    "thumbnail": mm.get("thumbnail_url") or mm.get("media_url"), "likes": inum(mm.get("like_count")),
+                    "comments": inum(mm.get("comments_count")), "insights": {}, "de_anuncio": True}
+            for metric_set in ("reach,saved,shares,views,total_interactions,follows,profile_visits", "reach,saved,shares,views,total_interactions", "reach"):
+                try:
+                    res = api(f"{mid}/insights", {"metric": metric_set}, token=ig_tok, retries=1)
+                    item["insights"] = {d.get("name"): inum((d.get("values") or [{}])[0].get("value")) for d in res.get("data", [])}
+                    break
+                except ApiError:
+                    continue
+            ig["media"].append(item)
         out["instagram"] = ig
     except ApiError as e:
         out["warnings"].append(f"Instagram conta {ig_id}: {e}")
@@ -906,7 +930,13 @@ def coleta_marca(brand: dict, out_dir: str) -> tuple[bool, dt.date]:
         today = today_in(None)
 
     try:
-        organic = fetch_organic(today, m["page_id"], m["ig_user_id"])
+        midias = []
+        try:
+            gastou = {r["ad_id"] for r in meta["daily"] if r.get("spend")}  # noqa: F821 — meta existe se a coleta de anúncios deu certo
+            midias = sorted({(a.get("creative") or {}).get("instagram_media_id") for a in meta["ads"] if a["id"] in gastou} - {None})  # noqa: F821
+        except Exception:  # noqa: BLE001
+            midias = []
+        organic = fetch_organic(today, m["page_id"], m["ig_user_id"], midias)
         organic["brand"] = {"id": bid, "name": brand.get("name")}
         with open(os.path.join(out_dir, f"organic-{bid}.json"), "w", encoding="utf-8") as f:
             json.dump(organic, f, ensure_ascii=False, separators=(",", ":"))

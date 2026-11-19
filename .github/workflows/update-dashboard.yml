@@ -1,9 +1,11 @@
 name: Atualizar dashboard
 
-# Roda todo dia às 07:00 (Brasília), manualmente, e quando o código do dashboard muda.
+# Roda a cada 3 horas das 07h às 22h (Brasília), manualmente, e quando o código do dashboard muda.
+# Mais de uma vez por dia porque o Gerenciador é ao vivo: com uma coleta só, "este mês" e
+# "desde o início" ficavam até 24 h atrás do Gerenciador.
 on:
   schedule:
-    - cron: "0 10 * * *"
+    - cron: "0 1,10,13,16,19,22 * * *"
   workflow_dispatch:
   push:
     paths:

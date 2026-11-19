@@ -39,10 +39,27 @@ fica em "Avisos da coleta orgânica" e no resumo do workflow.
 
 ## Workflow
 
-`.github/workflows/update-dashboard.yml` roda todo dia às **07:00 (Brasília)**, manualmente
+`.github/workflows/update-dashboard.yml` roda **a cada 3 horas, das 07h às 22h (Brasília)**, manualmente
 (**Actions → Atualizar dashboard → Run workflow**) e a cada push que altere `public/`, `functions/`,
 `scripts/` ou o próprio workflow. **Só a branch padrão do repositório publica**; em outro branch ele coleta
 e confere, sem trocar o painel do cliente. O agendamento diário também roda só na branch padrão.
+
+## Como os números batem com o Gerenciador
+
+- **Atalhos de período** (7, 14 e 30 dias, este mês, mês passado, desde o início) usam as mesmas janelas
+  do Gerenciador, no fuso da conta: "últimos N dias" terminam **ontem**. Para cada janela o coletor guarda
+  os totais da API em cada nível (conta, campanha, conjunto, anúncio) — alcance único, frequência e
+  resultados saem iguais ao Gerenciador, sem somar dias.
+- **Resultado** vem do campo `results` da API (coluna Resultados do Gerenciador), com o mesmo indicador.
+  Ex.: visitas ao perfil vêm de `profile_visit_view` — não de clique no link (na [TE] VISITAS_IG foram
+  20.522 visitas para 21.038 cliques no link).
+- **Conferência automática:** a cada coleta, a soma da série diária é comparada com os totais da API
+  (gasto, impressões, cliques, cliques no link, resultados). Diferença acima de 0,5% vira aviso no topo do
+  painel e no resumo do workflow (só em %, nunca valores).
+- **Período personalizado** soma os dias: alcance e frequência ficam aproximados e aparecem com "≈".
+- **Seguidores atribuídos aos anúncios** (coluna "Seguidores no Instagram" do Gerenciador) não são liberados
+  pela API pública da Meta — testado nas versões v23 a v26, o campo volta vazio. O painel mostra o que o
+  Instagram registra (seguiram, deixaram de seguir, por publicação de feed) e não estima custo por seguidor.
 
 ## Frentes, resultados e metas
 

@@ -1201,8 +1201,12 @@ function renderOrganic() {
     const pv30 = seriesLast(ig.daily?.profile_views, 30), ae30 = seriesLast(ig.daily?.accounts_engaged, 30);
     const tiles = h("div", { class: "grid c6" },
       tile({ label: "Seguidores", value: fmt.int(ig.followers), sub: `${fmt.int(ig.media_count)} publicações · segue ${fmt.int(ig.follows)}`, accent: true }),
-      tile({ label: "Novos seguidores (30d)", value: foll30.length ? "+" + fmt.int(sum(foll30, (p) => p.value)) : "—", sub: foll30.length ? `${fmt.dec1(sum(foll30, (p) => p.value) / foll30.length)} por dia` : "série indisponível" }),
-      tile({ label: "Alcance (30d)", value: reach30.length ? fmt.int(sum(reach30, (p) => p.value)) : "—", delta: reachPrev.length ? deltaBadge(sum(reach30, (p) => p.value), sum(reachPrev, (p) => p.value)) : null, sub: "soma do alcance diário" }),
+      tile({ label: "Seguiram (30d)", value: ok(t30.follows) ? "+" + fmt.int(t30.follows) : (foll30.length ? "+" + fmt.int(sum(foll30, (p) => p.value)) : "—"),
+        sub: ok(t30.unfollows) ? `deixaram de seguir ${fmt.int(t30.unfollows)} · saldo ${(t30.follows - t30.unfollows >= 0 ? "+" : "") + fmt.int(t30.follows - t30.unfollows)}` : (foll30.length ? `${fmt.dec1(sum(foll30, (p) => p.value) / foll30.length)} por dia` : "série indisponível") }),
+      // alcance de 30 dias = contas ÚNICAS (o que o Instagram mostra); a soma dos dias conta a mesma conta várias vezes
+      ok(t30.reach)
+        ? tile({ label: "Alcance (30d)", value: fmt.int(t30.reach), sub: `contas únicas · soma dos dias ${reach30.length ? fmt.int(sum(reach30, (p) => p.value)) : "—"}` })
+        : tile({ label: "Alcance (30d, soma diária)", value: reach30.length ? `≈ ${fmt.int(sum(reach30, (p) => p.value))}` : "—", delta: reachPrev.length ? deltaBadge(sum(reach30, (p) => p.value), sum(reachPrev, (p) => p.value)) : null, sub: "aproximação: a mesma conta conta em vários dias" }),
       tile({ label: "Visitas ao perfil (30d)", value: fmt.int(t30.profile_views ?? (pv30.length ? sum(pv30, (p) => p.value) : null)), sub: `7d: ${fmt.int(t7.profile_views)}` }),
       tile({ label: "Contas engajadas (30d)", value: fmt.int(t30.accounts_engaged ?? (ae30.length ? sum(ae30, (p) => p.value) : null)), sub: `interações: ${fmt.int(t30.total_interactions)}` }),
       tile({ label: "Visualizações (30d)", value: fmt.int(t30.views), sub: `cliques no site: ${fmt.int(t30.website_clicks)}` }),
@@ -1221,6 +1225,7 @@ function renderOrganic() {
         h("div", { class: "k" }, h("span", { text: "Curtidas · coment." }), h("b", { text: `${fmt.int(x.likes)} · ${fmt.int(x.comments)}` })),
         h("div", { class: "k" }, h("span", { text: "Salvos · compart." }), h("b", { text: `${fmt.int(x.insights?.saved ?? null)} · ${fmt.int(x.insights?.shares ?? null)}` })),
         h("div", { class: "k" }, h("span", { text: "Engajamento" }), h("b", { text: ok(x.rate) ? fmt.pct(x.rate) : "—" })),
+        h("div", { class: "k" }, h("span", { text: "Seguidores · visitas" }), h("b", { text: x.insights?.follows != null ? `${fmt.int(x.insights.follows)} · ${fmt.int(x.insights.profile_visits)}` : "não informado" })),
       ))));
     const top = medias.filter((x) => x.reach > 0).sort((a, b) => b.reach - a.reach).slice(0, 5);
     const topList = top.length ? h("div", { class: "card" }, h("h3", { text: "Publicações com maior alcance" }), h("div", { class: "list" }, ...top.map((x, i) => h("div", { class: "list-item" }, h("span", { class: "rank good", text: i + 1 }), x.thumbnail ? h("img", { class: "thumb", src: x.thumbnail, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null, h("div", { class: "txt" }, h("div", { class: "n" }, h("a", { href: x.permalink, target: "_blank", rel: "noopener noreferrer", text: x.caption ? x.caption.slice(0, 80) : (x.product_type || "publicação") })), h("div", { class: "s", text: `${fmt.date((x.timestamp || "").slice(0, 10))} · alcance ${fmt.int(x.reach)} · ${fmt.int(x.inter)} interações · ${ok(x.rate) ? fmt.pct(x.rate) : "—"} engaj.` })))))) : null;
@@ -1233,11 +1238,16 @@ function renderOrganic() {
   if (fb) {
     const d = fb.daily || {};
     const imp30 = seriesLast(d.page_impressions_unique, 30), eng30 = seriesLast(d.page_post_engagements, 30), fol30 = seriesLast(d.page_daily_follows_total, 30), views30 = seriesLast(d.page_views_total, 30);
+    // page_follows é o TOTAL de seguidores em cada dia: só a diferença entre o primeiro e o último dia faz sentido
+    const tot30 = seriesLast(d.page_follows, 31);
+    const variacao = tot30.length >= 2 ? tot30[tot30.length - 1].value - tot30[0].value : null;
     const tiles = h("div", { class: "grid c4" },
       tile({ label: "Seguidores da página", value: fmt.int(fb.followers ?? fb.fans), sub: `${fmt.int(fb.fans)} curtidas` }),
       tile({ label: "Visualizadores únicos (30d)", value: imp30.length ? fmt.int(sum(imp30, (p) => p.value)) : "—", sub: "soma diária · substituiu o alcance" }),
       tile({ label: "Engajamentos (30d)", value: eng30.length ? fmt.int(sum(eng30, (p) => p.value)) : "—", sub: `${views30.length ? fmt.int(sum(views30, (p) => p.value)) : "—"} visitas à página` }),
-      tile({ label: "Novos seguidores (30d)", value: fol30.length ? "+" + fmt.int(sum(fol30, (p) => p.value)) : "—", sub: "" }),
+      fol30.length
+        ? tile({ label: "Novos seguidores (30d)", value: "+" + fmt.int(sum(fol30, (p) => p.value)), sub: "seguiram a página no período" })
+        : tile({ label: "Variação de seguidores (30d)", value: ok(variacao) ? (variacao >= 0 ? "+" : "") + fmt.int(variacao) : "—", sub: ok(variacao) ? `de ${fmt.int(tot30[0].value)} para ${fmt.int(tot30[tot30.length - 1].value)} (saldo líquido)` : "série indisponível" }),
     );
     const charts = h("div", { class: "grid c2" });
     if (imp30.length) charts.append(chartCard("Visualizadores únicos por dia · Facebook", "últimos 30 dias", [{ name: "Visualizadores", color: "#3987e5", values: imp30.map((p) => p.value) }], { labels: imp30.map((p) => fmt.dm(p.date)), type: "bar" }));
@@ -1883,7 +1893,8 @@ function renderConsolidadoFrentes(sec, vivas, porMarca) {
   const corte30 = addDays(state.range.until, -29);
   const serie30 = (ig, k) => (ig.daily?.[k] || []).filter((p) => p.date >= corte30);
   const novos30 = sum(igs, (ig) => sum(serie30(ig, "follower_count"), (p) => p.value));
-  const alcance30 = sum(igs, (ig) => sum(serie30(ig, "reach"), (p) => p.value));
+  // alcance único de 30 dias (Instagram); a soma diária só como último recurso
+  const alcance30 = sum(igs, (ig) => (ok(ig.totals?.last_30d?.reach) ? ig.totals.last_30d.reach : sum(serie30(ig, "reach"), (p) => p.value)));
   const visitas30 = sum(igs, (ig) => ig.totals?.last_30d?.profile_views || 0);
   const instalacoes = sum(porMarca, (x) => x.all.installs), cadastros = sum(porMarca, (x) => x.all.app_registrations);
   const temApp = vivas.some((b) => temAppNa(b.meta, b.idx));
@@ -1896,7 +1907,7 @@ function renderConsolidadoFrentes(sec, vivas, porMarca) {
         sub: ok(costPerResult(g.agg, g.def)) ? `${fmt.brl(costPerResult(g.agg, g.def))} por ${g.def.unit}` : `sem ${g.def.unit} no período` })),
       temApp ? tile({ label: "Cadastros no app", value: fmt.int(cadastros), sub: instalacoes ? `${fmt.dec1((cadastros / instalacoes) * 100)}% das instalações` : "sem instalações no período" }) : null,
       igs.length ? tile({ label: "Seguidores no Instagram", value: fmt.int(sum(igs, (ig) => ig.followers)), sub: `${novos30 ? "+" + fmt.int(novos30) : "—"} nos últimos 30 dias · ${igs.map((ig) => "@" + ig.username).join(", ")}` }) : null,
-      igs.length ? tile({ label: "Alcance do Instagram (30d)", value: fmt.int(alcance30 || null), sub: `orgânico + pago · ${fmt.int(visitas30 || null)} visitas ao perfil` }) : null,
+      igs.length ? tile({ label: "Alcance do Instagram (30d)", value: fmt.int(alcance30 || null), sub: `contas únicas · orgânico + pago · ${fmt.int(visitas30 || null)} visitas ao perfil` }) : null,
       tile({ label: "Verba Meta / mês", value: verbaTotal != null ? fmt.brl(verbaTotal) : "—", sub: verbaTotal != null ? (vivas.length > 1 ? "soma das marcas" : "definida no config") : "ainda não definida" }),
     )));
 
@@ -1927,22 +1938,86 @@ function renderConsolidadoFrentes(sec, vivas, porMarca) {
         h("td", { text: fmt.int(x.all.impressions) }), h("td", { text: fmt.brl(x.all.cpm) }), h("td", { text: fmt.pct(x.all.link_ctr) }));
     }))))));
 
+  if (igs.length) sec.append(blocoSeguidores(vivas, igs));
   if (igs.length) {
     sec.append(block("Audiência orgânica", "perfil do Instagram e página do Facebook", h("div", { class: "table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, h("th", { text: "Marca" }), h("th", { text: "Perfil" }), h("th", { text: "Seguidores" }), h("th", { text: "Novos (30d)" }), h("th", { text: "Publicações" }), h("th", { text: "Alcance 30d" }), h("th", { text: "Visitas ao perfil 30d" }), h("th", { text: "Seguidores Facebook" }))),
+      h("thead", {}, h("tr", {}, h("th", { text: "Marca" }), h("th", { text: "Perfil" }), h("th", { text: "Seguidores" }), h("th", { text: "Seguiram (30d)" }), h("th", { text: "Publicações" }), h("th", { text: "Alcance 30d (únicas)" }), h("th", { text: "Visitas ao perfil 30d" }), h("th", { text: "Seguidores Facebook" }))),
       h("tbody", {}, ...vivas.filter((b) => b.organic?.instagram).map((b) => {
         const ig = b.organic.instagram, fb = b.organic.facebook, t30 = ig.totals?.last_30d || {};
         const r30 = serie30(ig, "reach"), n30 = serie30(ig, "follower_count");
         return h("tr", {},
           h("td", {}, spanDot(b.accent || "#888"), " ", b.name),
           h("td", { text: "@" + (ig.username || "") }), h("td", { text: fmt.int(ig.followers) }),
-          h("td", { text: n30.length ? "+" + fmt.int(sum(n30, (pt) => pt.value)) : "—" }),
+          h("td", { text: ok(t30.follows) ? "+" + fmt.int(t30.follows) : n30.length ? "+" + fmt.int(sum(n30, (pt) => pt.value)) : "—" }),
           h("td", { text: fmt.int(ig.media_count) }),
-          h("td", { text: r30.length ? fmt.int(sum(r30, (pt) => pt.value)) : "—" }),
+          h("td", { text: ok(t30.reach) ? fmt.int(t30.reach) : r30.length ? `≈ ${fmt.int(sum(r30, (pt) => pt.value))}` : "—" }),
           h("td", { text: fmt.int(t30.profile_views) }),
           h("td", { text: fb ? fmt.int(fb.followers ?? fb.fans) : "—" }));
       }))))));
   }
+}
+
+
+/* Seguidores do Instagram: o que o Instagram registra (todas as origens) e os posts impulsionados.
+   A coluna "Seguidores no Instagram" do Gerenciador (seguidores atribuídos aos anúncios) NÃO é liberada
+   pela API pública da Meta (testado nas versões v23 a v26: o campo volta vazio), então não aparece aqui
+   e nenhum custo por seguidor é estimado no lugar dela. */
+function blocoSeguidores(vivas, igs) {
+  const winKey = { 7: "last_7d", 14: "last_14d", 30: "last_30d" }[state.preset] || "last_30d";
+  const winLbl = { last_7d: "últimos 7 dias", last_14d: "últimos 14 dias", last_30d: "últimos 30 dias" }[winKey];
+  const T = (ig) => ig.totals?.[winKey] || {};
+  const temFU = igs.some((ig) => ok(T(ig).follows));
+  const seguiram = sum(igs, (ig) => T(ig).follows), deixaram = sum(igs, (ig) => T(ig).unfollows);
+  const tiles = h("div", { class: "grid c4" },
+    tile({ label: "Seguidores no Instagram", value: fmt.int(sum(igs, (ig) => ig.followers)), sub: igs.map((ig) => "@" + ig.username).join(", "), accent: true }),
+    tile({ label: `Seguiram · ${winLbl}`, value: temFU ? "+" + fmt.int(seguiram) : "—", sub: "Instagram Insights · todas as origens (anúncio, orgânico, indicação)" }),
+    tile({ label: `Deixaram de seguir · ${winLbl}`, value: temFU ? fmt.int(deixaram) : "—", sub: "inclui contas que saíram do Instagram" }),
+    tile({ label: `Saldo · ${winLbl}`, value: temFU ? (seguiram - deixaram >= 0 ? "+" : "") + fmt.int(seguiram - deixaram) : "—", sub: "seguiram − deixaram de seguir" }),
+  );
+
+  // posts que receberam investimento no período, casados com a publicação do Instagram
+  const porPost = new Map();
+  for (const b of vivas) {
+    const midias = new Map((b.organic?.instagram?.media || []).map((x) => [x.id, x]));
+    for (const r of periodRows("ad", { meta: b.meta })) {
+      if (!(r.spend > 0)) continue;
+      const ad = b.idx.ads.get(r.ad_id); if (!ad) continue;
+      const mid = ad.creative?.instagram_media_id || ad.creative?.instagram_permalink_url || ad.id;
+      if (!porPost.has(mid)) porPost.set(mid, { mid, ad, midia: midias.get(mid) || null, campanhas: new Set(), anuncios: 0, agg: emptyAgg(), visitas: 0 });
+      const x = porPost.get(mid);
+      x.campanhas.add(b.idx.campaigns.get(r.campaign_id)?.name || r.campaign_id); x.anuncios += 1; addRow(x.agg, r);
+      if (["profile_visit_view", "total_profile_visits"].includes(r.result?.indicator)) x.visitas += r.result.value || 0;
+    }
+  }
+  const posts = Array.from(porPost.values()).map((x) => ({ ...x, agg: finish(x.agg) })).sort((a, b) => b.agg.spend - a.agg.spend).slice(0, 25);
+  const reels = (x) => /REELS|VIDEO/.test(`${x.midia?.product_type || ""} ${x.midia?.media_type || ""}`) && x.midia?.insights?.follows == null;
+  const tabela = posts.length ? h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, h("th", { class: "l", text: "Post" }), h("th", { class: "l", text: "Campanhas" }), h("th", { text: "Investido no período" }),
+      h("th", { text: "Visitas ao perfil (anúncio)" }), h("th", { text: "Custo por visita" }),
+      h("th", { text: "Seguidores do post*" }), h("th", { text: "Visitas do post*" }), h("th", { text: "Alcance do post*" }))),
+    h("tbody", {}, ...posts.map((x) => {
+      const thumb = x.midia?.thumbnail || thumbOf(x.ad), link = x.midia?.permalink || adLink(x.ad), ins = x.midia?.insights || {};
+      const titulo = (x.midia?.caption || x.ad.name || "").slice(0, 90);
+      return h("tr", {},
+        h("td", { class: "name" }, h("div", { class: "post-cell" }, thumb ? h("img", { class: "thumb", src: thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
+          h("div", {}, link ? h("div", { class: "n" }, h("a", { href: link, target: "_blank", rel: "noopener noreferrer", text: titulo || "publicação" })) : h("div", { class: "n", text: titulo }),
+            h("div", { class: "s", text: `${x.midia?.timestamp ? fmt.date(x.midia.timestamp.slice(0, 10)) + " · " : ""}${(x.midia?.product_type || x.ad.creative?.object_type || "").toLowerCase()} · ${x.anuncios} anúncio${x.anuncios > 1 ? "s" : ""}` })))),
+        h("td", { class: "name", text: Array.from(x.campanhas).join(" · ") }),
+        h("td", { text: fmt.brl(x.agg.spend) }),
+        h("td", { text: x.visitas ? fmt.int(x.visitas) : "—" }),
+        h("td", { text: x.visitas ? fmt.brl(x.agg.spend / x.visitas) : "—" }),
+        h("td", { text: ins.follows != null ? fmt.int(ins.follows) : reels(x) ? "não informado (Reels)" : "—" }),
+        h("td", { text: ins.profile_visits != null ? fmt.int(ins.profile_visits) : reels(x) ? "não informado (Reels)" : "—" }),
+        h("td", { text: ins.reach != null ? fmt.int(ins.reach) : "—" }));
+    })))) : h("div", { class: "empty", text: "Nenhum post com investimento no período." });
+
+  return block("Seguidores do Instagram", `${winLbl} · Instagram Insights e posts impulsionados`,
+    tiles,
+    block("Posts impulsionados", "investimento e visitas ao perfil vêm do Gerenciador, no período escolhido; * colunas com asterisco vêm do Instagram, desde a publicação", tabela),
+    h("div", { class: "card note-card" },
+      h("b", { text: "Por que não há “custo por seguidor” por post: " }),
+      "a coluna “Seguidores no Instagram” do Gerenciador (seguidores atribuídos aos anúncios) não é liberada pela API da Meta — testamos as versões v23 a v26 e o campo volta vazio. ",
+      "As colunas com asterisco são o que o Instagram registra para a publicação (todas as origens, desde que foi postada) e não separam o que veio do anúncio. Dividir o investimento por elas daria um custo por seguidor que não bate com o Gerenciador, então o painel não faz essa conta."));
 }
 
 /* ======================================================== seção: legendas */
@@ -1986,7 +2061,9 @@ function renderLegend() {
     block("Fontes e atualização", "", h("div", { class: "card" }, dl([
       ["Meta Ads", state.brands.filter((b) => b.meta).map((b) => `${b.name}: conta ${b.meta.account.id} (${b.meta.account.name}), série diária desde ${fmt.date(b.meta.range.since)}`).join(" · ") || "nenhuma conta coletada"],
       ["Orgânico", state.brands.map((b) => `${b.name}: Instagram @${b.meta_cfg?.ig_username || "—"} · Página ${b.meta_cfg?.page_name || "—"}`).join(" · ") + ". Séries dos últimos 30/90 dias; métricas por publicação via Instagram Insights."],
-      ["Atualização", "Automática todo dia às 7h (Brasília) via GitHub Actions, com publicação no Cloudflare Pages. Última coleta: " + (state.brands.filter((b) => b.meta).map((b) => `${b.short || b.name} ${fmt.dateTime(b.meta.generated_at)}`).join(" · ") || "—") + "."],
+      ["Conferência com o Gerenciador", "Os atalhos de período (7, 14 e 30 dias, este mês, mês passado e desde o início) usam os totais que a API da Meta entrega para a mesma janela do Gerenciador — alcance, frequência e resultados iguais. A cada coleta o painel confere se a soma dos dias bate com esses totais; se não bater, aparece um aviso no topo. Período personalizado soma os dias: alcance e frequência ficam aproximados (marcados com ≈)."],
+      ["Resultados", "Vêm do campo “results” da API, o mesmo da coluna Resultados do Gerenciador, com o mesmo tipo de resultado (visualização da página de destino, visita ao perfil do Instagram, instalação do app...)."],
+      ["Atualização", "Automática a cada 3 horas, das 7h às 22h (Brasília), via GitHub Actions, com publicação no Cloudflare Pages. Os números de hoje e de ontem ainda podem mudar no Gerenciador (atribuição chega com atraso). Última coleta: " + (state.brands.filter((b) => b.meta).map((b) => `${b.short || b.name} ${fmt.dateTime(b.meta.generated_at)}`).join(" · ") || "—") + "."],
       ["Metas", "Editáveis no menu lateral (ficam salvas apenas neste navegador). Padrão definido em config.json."],
     ]))),
   );
