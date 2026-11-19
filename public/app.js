@@ -102,14 +102,17 @@ const OBJECTIVE_LABEL = {
    devolve cada evento com até três nomes (omni_*, o curto e offsite_conversion.*) que
    são o mesmo número. Por isso primeiraChave, nunca a soma. */
 const PURCHASE_KEYS = ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"];
-const LPV_KEYS = ["landing_page_view", "omni_landing_page_view"];
+// o resultado "Visualizações da página de destino" do Gerenciador é o omni_landing_page_view
+const LPV_KEYS = ["omni_landing_page_view", "landing_page_view"];
 const VIEW_KEYS = ["omni_view_content", "view_content", "offsite_conversion.fb_pixel_view_content"];
 const CART_KEYS = ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"];
 const CHECKOUT_KEYS = ["omni_initiated_checkout", "initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"];
 const PAYMENT_KEYS = ["omni_add_payment_info", "add_payment_info", "offsite_conversion.fb_pixel_add_payment_info"];
 /* App (The Edit): instalação e cadastro chegam pelo SDK da Meta. Mesma regra: primeira chave, nunca a soma. */
-const INSTALL_KEYS = ["mobile_app_install", "omni_app_install", "app_install"];
-const APP_REG_KEYS = ["app_custom_event.fb_mobile_complete_registration", "omni_complete_registration", "complete_registration"];
+// `app_install` NÃO entra: na API é instalação de app de desktop
+const INSTALL_KEYS = ["mobile_app_install", "omni_app_install"];
+// "Cadastros concluídos" do Gerenciador = omni_complete_registration
+const APP_REG_KEYS = ["omni_complete_registration", "app_custom_event.fb_mobile_complete_registration", "complete_registration"];
 const GOAL_RESULT = {
   CONVERSATIONS: { label: "Conversas iniciadas", unit: "conversa", keys: ["onsite_conversion.messaging_conversation_started_7d", "onsite_conversion.total_messaging_connection"], target: "cost_per_conversation", kind: "lead" },
   LEAD_GENERATION: { label: "Cadastros", unit: "cadastro", keys: ["lead", "onsite_conversion.lead_grouped", "leadgen_grouped"], target: "cost_per_lead", kind: "lead" },
@@ -121,11 +124,14 @@ const GOAL_RESULT = {
   CONTACT: { label: "Contatos", unit: "contato", keys: ["contact_website", "contact_total", "offsite_conversion.fb_pixel_contact"], target: "cost_per_contact", kind: "lead" },
   VALUE: { label: "Conversões", unit: "conversão", keys: ["purchase", "offsite_conversion.fb_pixel_purchase", "lead"], target: "cost_per_conversation", kind: "lead" },
   LINK_CLICKS: { label: "Cliques no link", unit: "clique", keys: ["link_click"], kind: "traffic" },
-  LANDING_PAGE_VIEWS: { label: "Visualizações da página", unit: "visualização", keys: ["landing_page_view", "omni_landing_page_view", "link_click"], target: "cost_per_lpv", kind: "traffic" },
+  LANDING_PAGE_VIEWS: { label: "Visualizações da página", unit: "visualização", keys: ["omni_landing_page_view", "landing_page_view", "link_click"], target: "cost_per_lpv", kind: "traffic" },
   APP_INSTALLS: { label: "Instalações do app", unit: "instalação", keys: INSTALL_KEYS, target: "cost_per_install", kind: "app", noProxy: true },
   APP_INSTALLS_AND_OFFSITE_CONVERSIONS: { label: "Instalações do app", unit: "instalação", keys: INSTALL_KEYS, target: "cost_per_install", kind: "app", noProxy: true },
-  PROFILE_VISIT: { label: "Visitas ao perfil", unit: "visita", keys: ["profile_visit", "link_click"], target: "cost_per_profile_visit", kind: "traffic" },
-  VISIT_INSTAGRAM_PROFILE: { label: "Visitas ao perfil", unit: "visita", keys: ["profile_visit", "link_click"], target: "cost_per_profile_visit", kind: "traffic" },
+  // visita ao perfil vem do campo profile_visit_view (não é clique no link: na [TE] VISITAS_IG foram 20.522 × 21.038)
+  PROFILE_VISIT: { label: "Visitas ao perfil", unit: "visita", metric: "profile_visits", target: "cost_per_profile_visit", kind: "traffic" },
+  VISIT_INSTAGRAM_PROFILE: { label: "Visitas ao perfil", unit: "visita", metric: "profile_visits", target: "cost_per_profile_visit", kind: "traffic" },
+  PROFILE_AND_PAGE_VISIT: { label: "Visitas ao perfil", detalhe: "visitas ao perfil e à Página", unit: "visita", metric: "profile_visits", target: "cost_per_profile_visit", kind: "traffic" },
+  POST_INTERACTION: { label: "Interações com a publicação", unit: "interação", keys: ["post_interaction_gross", "post_engagement"], kind: "awareness" },
   REACH: { label: "Alcance", unit: "pessoa", metric: "reach", kind: "awareness", per: 1000 },
   AD_RECALL_LIFT: { label: "Alcance", unit: "pessoa", metric: "reach", kind: "awareness", per: 1000 },
   IMPRESSIONS: { label: "Impressões", unit: "impressão", metric: "impressions", kind: "awareness", per: 1000 },
@@ -135,6 +141,19 @@ const GOAL_RESULT = {
   PAGE_LIKES: { label: "Curtidas na página", unit: "curtida", keys: ["like"], kind: "awareness" },
 };
 const DEFAULT_RESULT = { label: "Cliques no link", unit: "clique", keys: ["link_click"], kind: "traffic" };
+/* Indicador do campo `results` (o tipo de resultado que o Gerenciador mostra) → definição do painel.
+   O número vem do próprio `results`; a definição só dá nome, unidade e meta. */
+const INDICADOR_RESULT = {
+  "actions:omni_landing_page_view": "LANDING_PAGE_VIEWS", "actions:landing_page_view": "LANDING_PAGE_VIEWS",
+  profile_visit_view: "PROFILE_VISIT", total_profile_visits: "PROFILE_AND_PAGE_VISIT",
+  "actions:mobile_app_install": "APP_INSTALLS", "actions:omni_app_install": "APP_INSTALLS",
+  "actions:link_click": "LINK_CLICKS",
+  "actions:post_engagement": "POST_ENGAGEMENT", "actions:post_interaction_gross": "POST_INTERACTION",
+  reach: "REACH", impressions: "IMPRESSIONS",
+  "actions:onsite_conversion.messaging_conversation_started_7d": "CONVERSATIONS",
+  "actions:offsite_conversion.fb_pixel_lead": "LEAD_GENERATION", "actions:lead": "LEAD_GENERATION",
+  "actions:omni_purchase": "PURCHASE", "actions:offsite_conversion.fb_pixel_purchase": "PURCHASE",
+};
 /* As três formas de captação que já passaram pela conta. A de WhatsApp é
    histórica (campanha desativada em outubro) mas continua aqui: sem ela,
    setembro apareceria zerado no painel. */
@@ -165,7 +184,7 @@ const state = {
   creativeFilter: { campaign: "all", quality: "all" },
 };
 // aponta para o índice da marca ativa — trocado por activateBrand()
-let idx = { campaigns: new Map(), adsets: new Map(), ads: new Map(), resultDefByCampaign: new Map(), kindByCampaign: new Map(), campaignByAd: new Map() };
+let idx = { campaigns: new Map(), adsets: new Map(), ads: new Map(), resultDefByCampaign: new Map(), resultDefByAdset: new Map(), kindByCampaign: new Map(), campaignByAd: new Map() };
 const brandById = (id) => state.brands.find((b) => b.id === id) || null;
 
 const targetsKey = (brandId) => `theedit.targets.${brandId}`;
@@ -181,10 +200,18 @@ function loadTargets(brand) {
 function saveTargets(brandId, t) { try { localStorage.setItem(targetsKey(brandId), JSON.stringify(t)); } catch { /* ignore */ } }
 
 /* ============================================================== agregação */
-function emptyAgg() { return { spend: 0, impressions: 0, reach: 0, clicks: 0, link_clicks: 0, thruplays: 0, actions: {}, values: {}, days: new Set() }; }
+function emptyAgg() { return { spend: 0, impressions: 0, reach: 0, clicks: 0, link_clicks: 0, thruplays: 0, follows: 0, profile_visits: 0, n: 0, resN: 0, resValue: 0, resNaoSoma: false, actions: {}, values: {}, days: new Set() }; }
 function addRow(agg, r) {
   agg.spend += r.spend || 0; agg.impressions += r.impressions || 0; agg.reach += r.reach || 0;
   agg.clicks += r.clicks || 0; agg.link_clicks += r.link_clicks || 0; agg.thruplays += r.thruplays || 0;
+  agg.follows += r.follows || 0; agg.profile_visits += r.profile_visits || 0;
+  // `results` da API (coluna Resultados do Gerenciador). Alcance e "misto" não somam.
+  agg.n += 1;
+  if (r.result) {
+    agg.resN += 1;
+    if (r.result.indicator === "reach" || r.result.indicator === "mixed") agg.resNaoSoma = true;
+    else agg.resValue += r.result.value || 0;
+  }
   if (r.date) agg.days.add(r.date);
   for (const [k, v] of Object.entries(r.actions || {})) agg.actions[k] = (agg.actions[k] || 0) + v;
   // valor em R$ por evento (action_values) — só existe nas coletas a partir de nov/2026
@@ -225,6 +252,8 @@ function finish(agg) {
   agg.app_registrations = primeiraChave(agg.actions, APP_REG_KEYS);
   agg.cost_per_install = div(agg.spend, agg.installs);
   agg.cost_per_app_registration = div(agg.spend, agg.app_registrations);
+  agg.cost_per_follow = div(agg.spend, agg.follows);
+  agg.cost_per_profile_visit = div(agg.spend, agg.profile_visits);
   return agg;
 }
 function aggregate(rows) { const a = emptyAgg(); for (const r of rows) addRow(a, r); return finish(a); }
@@ -236,8 +265,32 @@ function groupBy(rows, key) {
 }
 function rowsIn(since, until, rows = state.meta.daily) { return rows.filter((r) => r.date >= since && r.date <= until); }
 
+/* Atalhos de período = janelas do Gerenciador, com totais exatos da API em cada nível
+   (conta, campanha, conjunto, anúncio): alcance único, frequência e resultados iguais ao
+   Gerenciador. Período personalizado soma a série diária (alcance/frequência aproximados). */
+const PRESET_JANELA = { 7: "last_7d", 14: "last_14d", 30: "last_30d", month: "this_month", lastmonth: "last_month", max: "maximum" };
+function janelaAtual(meta = state.meta) {
+  const k = PRESET_JANELA[state.preset];
+  return k && meta?.windows?.[k] && meta?.snapshots?.[k] ? k : null;
+}
+const periodoExato = (meta = state.meta) => !!janelaAtual(meta);
+function periodRows(level, { meta = state.meta, prev = false } = {}) {
+  const k = janelaAtual(meta);
+  if (k) {
+    const snap = meta.snapshots[prev ? `${k}:prev` : k];
+    if (snap && snap[level]) return snap[level];
+  }
+  const [a, b] = prev ? [state.prevSince, state.prevUntil] : [state.since, state.until];
+  return meta.daily.filter((r) => r.date >= a && r.date <= b);
+}
+
 // meta explícito porque buildIndexes roda no carregamento, antes de haver marca ativa
 function resolveResultDef(def, meta = state.meta) {
+  // coleta antiga, sem profile_visit_view: visita ao perfil cai para clique no link (e avisa)
+  if (def.metric === "profile_visits" && !(meta?.daily || []).some((r) => r.profile_visits > 0)) {
+    // com o campo `results` o número é o do Gerenciador; sem ele, clique no link como proxy (e avisa)
+    return { ...def, metric: null, keys: ["link_click"], key: "link_click", proxy: meta?.has_results ? null : "cliques no link como proxy" };
+  }
   if (def.metric) return { ...def, key: null };
   const seen = new Set(meta?.action_types_seen || []);
   const key = def.keys.find((k) => seen.has(k)) || def.keys[0];
@@ -247,9 +300,14 @@ function resolveResultDef(def, meta = state.meta) {
 function resultDefFor(campaignId) { return idx.resultDefByCampaign.get(campaignId) || resolveResultDef(DEFAULT_RESULT); }
 function resultsOf(agg, def) {
   if (!def) return 0;
+  // alcance/impressões: sempre a métrica (nos atalhos é o alcance único da API)
+  if (def.metric === "reach" || def.metric === "impressions" || def.metric === "thruplays") return agg[def.metric] || 0;
+  // o campo `results` da API, quando todas as linhas o trazem: é o número do Gerenciador
+  if (agg.n > 0 && agg.resN === agg.n && !agg.resNaoSoma) return agg.resValue;
   if (def.metric) return agg[def.metric] || 0;
   return agg.actions[def.key] || 0;
 }
+const resultDefForAd = (ad) => (ad && idx.resultDefByAdset.get(ad.adset_id)) || resultDefFor(ad?.campaign_id);
 function costPerResult(agg, def) {
   const r = resultsOf(agg, def);
   if (def.per) return div(agg.spend * def.per, r);
@@ -290,7 +348,15 @@ function assess(agg, def, { minSpend } = {}) {
 
 /* ================================================================ índices */
 function buildIndexes(m) {
-  const idx = { campaigns: new Map(), adsets: new Map(), ads: new Map(), resultDefByCampaign: new Map(), kindByCampaign: new Map(), campaignByAd: new Map() };
+  const idx = { campaigns: new Map(), adsets: new Map(), ads: new Map(), resultDefByCampaign: new Map(), resultDefByAdset: new Map(), kindByCampaign: new Map(), campaignByAd: new Map() };
+  // indicador de resultado que o Gerenciador usa, por campanha e por conjunto (vida inteira)
+  const indicador = (nivel, chave) => {
+    const map = new Map();
+    for (const r of m.snapshots?.maximum?.[nivel] || []) if (r.result?.indicator && r[chave]) map.set(r[chave], r.result.indicator);
+    return map;
+  };
+  const indCamp = indicador("campaign", "campaign_id"), indSet = indicador("adset", "adset_id");
+  const defDoIndicador = (ind) => (ind && GOAL_RESULT[INDICADOR_RESULT[ind]]) || null;
   idx.campaigns = new Map(m.campaigns.map((c) => [c.id, c]));
   idx.adsets = new Map(m.adsets.map((s) => [s.id, s]));
   idx.ads = new Map(m.ads.map((a) => [a.id, a]));
@@ -305,7 +371,7 @@ function buildIndexes(m) {
     // é o evento otimizado. Coletas antigas não têm promoted_event: aí vale o objetivo.
     const eventos = sets.map((s) => s.promoted_event).filter(Boolean);
     const vende = eventos.length ? eventos.includes("PURCHASE") : c.objective === "OUTCOME_SALES";
-    let def = vende ? GOAL_RESULT.PURCHASE : GOAL_RESULT[goal];
+    let def = defDoIndicador(indCamp.get(c.id)) || (vende ? GOAL_RESULT.PURCHASE : GOAL_RESULT[goal]);
     if (!def) {
       if (c.objective === "OUTCOME_APP_PROMOTION" || c.objective === "APP_INSTALLS" || c.objective === "MOBILE_APP_INSTALLS") def = GOAL_RESULT.APP_INSTALLS;
       else if (LEAD_OBJ.has(c.objective)) def = GOAL_RESULT.CONVERSATIONS;
@@ -314,6 +380,7 @@ function buildIndexes(m) {
       else def = DEFAULT_RESULT;
     }
     idx.resultDefByCampaign.set(c.id, resolveResultDef(def, m));
+    for (const s2 of sets) { const d2 = defDoIndicador(indSet.get(s2.id)); if (d2) idx.resultDefByAdset.set(s2.id, resolveResultDef(d2, m)); }
     idx.kindByCampaign.set(c.id, goals.some((g) => LEAD_GOALS.has(g)) || LEAD_OBJ.has(c.objective) ? "captacao" : "topo");
   }
   return idx;
@@ -350,14 +417,22 @@ const nivelTxt = (lv) => (lv === "ok" ? "na meta" : lv === "warn" ? "atenção" 
 
 /* ================================================================ período */
 function computePeriod() {
+  // atalho = janela do coletor (mesma régua do Gerenciador, no fuso da conta)
+  const metaRef = state.meta || state.brands.find((b) => b.meta)?.meta;
+  const w = state.preset !== "custom" && metaRef?.windows?.[PRESET_JANELA[state.preset]];
+  if (w) {
+    state.since = w.since; state.until = w.until;
+    state.prevSince = w.prev_since || addDays(w.since, -w.days); state.prevUntil = w.prev_until || addDays(w.since, -1);
+    return;
+  }
   // a janela é a união das marcas: trocar de marca não reseta o período escolhido
   const last = state.range.until || dateToIso(new Date());
   const first = state.range.since || addDays(last, -29);
   let since, until = last;
   switch (state.preset) {
-    case "7": since = addDays(last, -6); break;
-    case "14": since = addDays(last, -13); break;
-    case "30": since = addDays(last, -29); break;
+    case "7": until = addDays(last, -1); since = addDays(until, -6); break;
+    case "14": until = addDays(last, -1); since = addDays(until, -13); break;
+    case "30": until = addDays(last, -1); since = addDays(until, -29); break;
     case "month": since = monthStart(last); break;
     case "lastmonth": { const e = addDays(monthStart(last), -1); since = monthStart(e); until = e; break; }
     case "max": since = first; break;
@@ -518,9 +593,11 @@ function adLink(ad) { return ad?.creative?.instagram_permalink_url || ad?.previe
 function renderExec() {
   const sec = $("#sec-exec"); sec.replaceChildren();
   const m = state.meta; const T = state.targets;
-  const rows = rowsIn(state.since, state.until);
-  const prevRows = rowsIn(state.prevSince, state.prevUntil);
-  const all = aggregate(rows), prevAll = aggregate(prevRows);
+  // por campanha (atalho = totais exatos da API) e série diária (gráficos)
+  const rows = periodRows("campaign");
+  const prevRows = periodRows("campaign", { prev: true });
+  const dRows = rowsIn(state.since, state.until);
+  const all = aggregate(periodRows("account")), prevAll = aggregate(periodRows("account", { prev: true }));
   const cap = aggregate(rows.filter((r) => isCaptacao(r.campaign_id))), prevCap = aggregate(prevRows.filter((r) => isCaptacao(r.campaign_id)));
   const topo = aggregate(rows.filter((r) => !isCaptacao(r.campaign_id)));
   const temVenda = temVendaNa(m, idx);
@@ -532,10 +609,9 @@ function renderExec() {
   const frResult = fr.filter((g) => g.def.kind !== "awareness");
   const temApp = temAppNa(m, idx);
   const appAgg = aggregate(rows.filter((r) => isApp(r.campaign_id))), prevAppAgg = aggregate(prevRows.filter((r) => isApp(r.campaign_id)));
-  const presetKey = { 7: "last_7d", 14: "last_14d", 30: "last_30d", month: "this_month", lastmonth: "last_month", max: "maximum" }[state.preset];
-  const exact = presetKey && m.presets?.[presetKey];
-  const reach = exact?.reach ?? all.reach;
-  const reachNote = exact ? "alcance exato (API)" : "soma dos alcances diários";
+  const exato = periodoExato();
+  const reach = all.reach;
+  const reachNote = exato ? "alcance único, igual ao Gerenciador" : "soma dos alcances diários (aproximação)";
 
   /* --- controle de investimento ------------------------------------------- */
   const last = state.range.until;
@@ -612,7 +688,7 @@ function renderExec() {
     tile({ label: "Leads no site", value: fmt.int(all.leads), delta: deltaBadge(all.leads, prevAll.leads), accent: true,
       sub: h("span", {}, ok(cap.cost_per_lead) ? `${fmt.brl(cap.cost_per_lead)} cada ` : "sem leads no período ",
         ok(cap.cost_per_lead) && ok(T.cost_per_lead) ? badge(cap.cost_per_lead <= T.cost_per_lead ? "ok" : cap.cost_per_lead <= T.cost_per_lead * 1.6 ? "warn" : "crit", cap.cost_per_lead <= T.cost_per_lead ? "na meta" : "atenção") : null) }),
-    tile({ label: "Alcance", value: fmt.int(reach), delta: deltaBadge(all.reach, prevAll.reach), sub: `${reachNote} · freq. ${fmt.dec(exact?.frequency ?? all.frequency)}` }),
+    tile({ label: "Alcance", value: fmt.int(reach), delta: deltaBadge(all.reach, prevAll.reach), sub: `${reachNote} · freq. ${fmt.dec(all.frequency)}` }),
     tile({ label: "Cliques no link", value: fmt.int(all.link_clicks), delta: deltaBadge(all.link_clicks, prevAll.link_clicks), sub: `CTR ${fmt.pct(all.ctr)} · CPC ${fmt.brl(all.cpc)}` }),
     tile({ label: "CPM médio", value: fmt.brl(all.cpm), delta: deltaBadge(all.cpm, prevAll.cpm, { goodWhenUp: false, kind: "brl" }), sub: `${fmt.int(all.impressions)} impressões` }),
   );
@@ -620,7 +696,7 @@ function renderExec() {
   const kpisCaptacao = temVenda && temCaptacao ? h("div", { class: "grid c3" },
     tile({ label: "Contatos", value: fmt.int(all.contacts), delta: deltaBadge(all.contacts, prevAll.contacts), sub: "evento Contact do pixel — na loja, é o clique no WhatsApp" }),
     tile({ label: "Leads no site", value: fmt.int(all.leads), delta: deltaBadge(all.leads, prevAll.leads), sub: ok(all.cost_per_lead) ? `${fmt.brl(all.cost_per_lead)} cada (sobre o gasto total)` : "sem leads no período" }),
-    tile({ label: "Alcance", value: fmt.int(reach), delta: deltaBadge(all.reach, prevAll.reach), sub: `${reachNote} · freq. ${fmt.dec(exact?.frequency ?? all.frequency)}` }),
+    tile({ label: "Alcance", value: fmt.int(reach), delta: deltaBadge(all.reach, prevAll.reach), sub: `${reachNote} · freq. ${fmt.dec(all.frequency)}` }),
   ) : null;
 
   // o selo da barra segue o custo por contato, que é a conversão de maior volume
@@ -684,7 +760,7 @@ function renderExec() {
     temApp ? tile({ label: "Cadastros no app", value: fmt.int(appAgg.app_registrations), delta: deltaBadge(appAgg.app_registrations, prevAppAgg.app_registrations), accent: true,
       sub: h("span", {}, ok(appAgg.cost_per_app_registration) ? `${fmt.brl(appAgg.cost_per_app_registration)} por cadastro` : "nenhum cadastro atribuído",
         ok(T.cost_per_app_registration) ? ` · meta ${fmt.brl(T.cost_per_app_registration)}` : " · sem meta") }) : null,
-    tile({ label: "Alcance", value: fmt.int(reach), delta: deltaBadge(all.reach, prevAll.reach), sub: `${reachNote} · freq. ${fmt.dec(exact?.frequency ?? all.frequency)}` }),
+    tile({ label: "Alcance", value: fmt.int(reach), delta: deltaBadge(all.reach, prevAll.reach), sub: `${reachNote} · freq. ${fmt.dec(all.frequency)}` }),
     tile({ label: "Cliques no link", value: fmt.int(all.link_clicks), delta: deltaBadge(all.link_clicks, prevAll.link_clicks), sub: `CTR ${fmt.pct(all.link_ctr)} · CPC ${fmt.brl(all.link_cpc)}` }),
     tile({ label: "CPM médio", value: fmt.brl(all.cpm), delta: deltaBadge(all.cpm, prevAll.cpm, { goodWhenUp: false, kind: "brl" }), sub: `${fmt.int(all.impressions)} impressões` }),
   ) : null;
@@ -706,9 +782,10 @@ function renderExec() {
 
   /* --- evolução diária ----------------------------------------------------- */
   const days = []; for (let d = state.since; d <= state.until; d = addDays(d, 1)) days.push(d);
-  const byDay = groupBy(rows, "date");
-  const byDayCap = groupBy(rows.filter((r) => isCaptacao(r.campaign_id)), "date");
-  const byDayTopo = groupBy(rows.filter((r) => !isCaptacao(r.campaign_id)), "date");
+  const byDay = groupBy(dRows, "date");
+  const byDayCap = groupBy(dRows.filter((r) => isCaptacao(r.campaign_id)), "date");
+  const byDayTopo = groupBy(dRows.filter((r) => !isCaptacao(r.campaign_id)), "date");
+  const frD = frentesMode ? frentes(dRows) : [];
   const labels = days.map(fmt.dm);
   const charts = temVenda ? h("div", { class: "grid c3" },
     chartCard("Funil por dia", "carrinho, checkout e compra", [
@@ -735,8 +812,8 @@ function renderExec() {
   );
 
   const chartsFrentes = frentesMode ? h("div", { class: "grid c2" },
-    chartCard("Investimento por dia", "empilhado por frente", fr.map((g) => { const bd = groupBy(g.rows, "date"); return { name: g.def.label, color: corFrente(g.def), values: days.map((d) => bd.get(d)?.spend || 0) }; }), { labels, type: "bar", stacked: true, format: fmt.brl }),
-    ...frResult.map((g) => {
+    chartCard("Investimento por dia", "empilhado por frente", frD.map((g) => { const bd = groupBy(g.rows, "date"); return { name: g.def.label, color: corFrente(g.def), values: days.map((d) => bd.get(d)?.spend || 0) }; }), { labels, type: "bar", stacked: true, format: fmt.brl }),
+    ...frD.filter((g) => g.def.kind !== "awareness").map((g) => {
       const bd = groupBy(g.rows, "date");
       const sub = `${fmt.int(resultsOf(g.agg, g.def))} no período · ${fmt.brl(costPerResult(g.agg, g.def))} por ${g.def.unit}`;
       if (g.def.kind === "app") {
@@ -792,8 +869,8 @@ function renderExec() {
   }
 
   /* --- onde está o resultado ----------------------------------------------- */
-  const byAd = groupBy(rows, "ad_id");
-  const adRows = Array.from(byAd.entries()).map(([id, a]) => ({ id, ad: idx.ads.get(id), agg: a, def: resultDefFor(idx.campaignByAd.get(id)) })).filter((x) => x.ad);
+  const byAd = groupBy(periodRows("ad"), "ad_id");
+  const adRows = Array.from(byAd.entries()).map(([id, a]) => ({ id, ad: idx.ads.get(id), agg: a, def: resultDefForAd(idx.ads.get(id)) })).filter((x) => x.ad);
   // nas frentes, "eficiente" é relativo à média da própria frente: visita na LP e instalação não se comparam
   const relevante = (def) => (frentesMode ? def?.kind !== "awareness" : isConv(def));
   const mediaFrente = new Map(fr.map((g) => [g.def.label, costPerResult(g.agg, g.def)]));
@@ -932,7 +1009,7 @@ function buildAlerts({ rows, prevRows, cap, prevCap, all, campRows, adRows, proj
 function renderMeta() {
   const sec = $("#sec-meta"); sec.replaceChildren();
   const m = state.meta; const T = state.targets;
-  const rows = rowsIn(state.since, state.until), prevRows = rowsIn(state.prevSince, state.prevUntil);
+  const rows = periodRows("campaign"), prevRows = periodRows("campaign", { prev: true });
   const byCamp = groupBy(rows, "campaign_id"), prevByCamp = groupBy(prevRows, "campaign_id");
   const cap = aggregate(rows.filter((r) => isCaptacao(r.campaign_id)));
   const capDef = resolveResultDef(GOAL_RESULT.CONVERSATIONS);
@@ -982,18 +1059,18 @@ function renderMeta() {
   );
 
   const table = h("div", { class: "table-wrap" }, h("table", {},
-    h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { class: "l", text: "Campanha" }), h("th", { text: "Orçam./dia" }), h("th", { text: "Result." }), h("th", { text: "Custo/result." }), h("th", { text: "Impress." }), h("th", { text: "Alcance" }), h("th", { text: "CPM" }), h("th", { text: "CTR" }), h("th", { text: "Cliques" }), h("th", { text: "CPC" }), h("th", { text: "Gasto" }), h("th", { class: "l", text: "Ação" }))),
+    h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { class: "l", text: "Campanha" }), h("th", { text: "Orçam./dia" }), h("th", { text: "Result." }), h("th", { text: "Custo/result." }), h("th", { text: "Impress." }), h("th", { text: "Alcance" }), h("th", { text: "CPM" }), h("th", { text: "CTR (link)" }), h("th", { text: "Cliques no link" }), h("th", { text: "CPC (link)" }), h("th", { text: "Gasto" }), h("th", { class: "l", text: "Ação" }))),
     h("tbody", {}, ...campRows.map((x) => campaignRow(x))),
   ));
 
   /* conjuntos por campanha */
-  const byAdset = groupBy(rows, "adset_id"), prevByAdset = groupBy(prevRows, "adset_id");
+  const byAdset = groupBy(periodRows("adset"), "adset_id"), prevByAdset = groupBy(periodRows("adset", { prev: true }), "adset_id");
   const groups = campRows.map((x) => {
-    const sets = m.adsets.filter((s) => s.campaign_id === x.c.id).map((s) => ({ c: s, agg: byAdset.get(s.id) || finish(emptyAgg()), prev: prevByAdset.get(s.id), def: x.def, parent: x.c })).filter((y) => y.agg.spend > 0 || y.c.effective_status === "ACTIVE").sort((a, b) => b.agg.spend - a.agg.spend);
+    const sets = m.adsets.filter((s) => s.campaign_id === x.c.id).map((s) => ({ c: s, agg: byAdset.get(s.id) || finish(emptyAgg()), prev: prevByAdset.get(s.id), def: idx.resultDefByAdset.get(s.id) || x.def, parent: x.c })).filter((y) => y.agg.spend > 0 || y.c.effective_status === "ACTIVE").sort((a, b) => b.agg.spend - a.agg.spend);
     if (!sets.length) return null;
     const details = h("details", { open: x === campRows[0] ? "" : null },
       h("summary", { class: "group-head" }, h("span", {}, x.c.name), h("small", { text: `${sets.length} conjunto${sets.length > 1 ? "s" : ""} · ${fmt.brl(x.agg.spend)} · ${x.def.label.toLowerCase()}: ${fmt.int(resultsOf(x.agg, x.def))} · ${sets.filter((s) => assess(s.agg, s.def).level === "ok").length} na meta` })),
-      h("table", {}, h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { class: "l", text: "Conjunto" }), h("th", { text: "Orçam./dia" }), h("th", { text: "Result." }), h("th", { text: "Custo/result." }), h("th", { text: "Impress." }), h("th", { text: "Alcance" }), h("th", { text: "CPM" }), h("th", { text: "CTR" }), h("th", { text: "Cliques" }), h("th", { text: "CPC" }), h("th", { text: "Gasto" }), h("th", { class: "l", text: "Ação" }))),
+      h("table", {}, h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { class: "l", text: "Conjunto" }), h("th", { text: "Orçam./dia" }), h("th", { text: "Result." }), h("th", { text: "Custo/result." }), h("th", { text: "Impress." }), h("th", { text: "Alcance" }), h("th", { text: "CPM" }), h("th", { text: "CTR (link)" }), h("th", { text: "Cliques no link" }), h("th", { text: "CPC (link)" }), h("th", { text: "Gasto" }), h("th", { class: "l", text: "Ação" }))),
         h("tbody", {}, ...sets.map((y) => campaignRow(y, true)))),
     );
     return details;
@@ -1008,9 +1085,11 @@ function renderMeta() {
   };
   // na loja as colunas são do funil de venda; nas marcas de captação, contato
   const temLpv = frM.some((g) => g.def.label === "Visualizações da página"), temInst = frM.some((g) => g.def.kind === "app");
+  // sem "CPI" aqui: a linha soma o gasto de TODAS as campanhas, e gasto total ÷ instalações não é custo por
+  // instalação. O CPI por aparelho (só campanhas de app) está na seção App.
   const colsFrentes = [["Gasto", (a) => fmt.brl(a.spend)], ...(temLpv ? [["Visitas LP", (a) => fmt.int(a.lpv)]] : []),
-    ...(temInst ? [["Instalações", (a) => fmt.int(a.installs)], ["CPI", (a) => fmt.brl(a.cost_per_install)]] : []),
-    ["Cliques", (a) => fmt.int(a.link_clicks)], ["CTR", (a) => fmt.pct(a.link_ctr)], ["CPC", (a) => fmt.brl(a.link_cpc)]];
+    ...(temInst ? [["Instalações", (a) => fmt.int(a.installs)]] : []),
+    ["Cliques no link", (a) => fmt.int(a.link_clicks)], ["CTR (link)", (a) => fmt.pct(a.link_ctr)], ["CPC (link)", (a) => fmt.brl(a.link_cpc)]];
   const bdTabela = (titulo, nota, list, rotulo) => {
     const fundo = sum(list, ([, a]) => a.purchases) > 0;
     const cols = frentesMode ? colsFrentes : temVenda
@@ -1045,7 +1124,8 @@ function campaignRow(x, isAdset = false) {
   const tg = isAdset ? c.targeting : null;
   const nameCell = h("td", { class: "name" },
     h("div", { class: "n", text: c.name }),
-    h("div", { class: "s", text: isAdset ? `${x.parent?.name || ""}${goal ? " · " + (GOAL_RESULT[goal]?.label || goal) : ""}` : `${OBJECTIVE_LABEL[c.objective] || c.objective || ""} · ${def.label}${def.proxy ? " (" + def.proxy + ")" : ""}` }),
+    h("div", { class: "s", text: isAdset ? `${x.parent?.name || ""} · resultado: ${def.detalhe || def.label}` : `${OBJECTIVE_LABEL[c.objective] || c.objective || ""} · ${def.detalhe || def.label}${def.proxy ? " (" + def.proxy + ")" : ""}` }),
+    agg.follows > 0 ? h("div", { class: "s", text: `${fmt.int(agg.follows)} seguidores no Instagram · ${fmt.brl(agg.cost_per_follow)} por seguidor` }) : null,
     def.kind === "sale" && agg.spend > 0 ? h("div", { class: "s", text: `${fmt.int(agg.carts)} carrinhos · ${fmt.int(agg.checkouts)} checkouts · receita ${fmt.brl(agg.revenue)}${agg.revenue > 0 ? ` · ROAS ${fmt.dec(agg.roas)}` : ""}` }) : null,
     tg ? h("div", {}, tg.age_min ? h("span", { class: "tag", text: `${tg.age_min}–${tg.age_max || "65+"}` }) : null, tg.advantage_audience ? h("span", { class: "tag", text: "Advantage+" }) : null, ...(tg.geo || []).slice(0, 4).map((g) => h("span", { class: "tag", text: g }))) : null,
   );
@@ -1057,11 +1137,11 @@ function campaignRow(x, isAdset = false) {
     h("td", {}, h("b", { text: fmt.int(results) }), " ", prevResults != null ? deltaBadge(results, prevResults) : null),
     h("td", {}, cprCell(agg, def)),
     h("td", { text: fmt.int(agg.impressions) }),
-    h("td", { text: fmt.int(agg.reach) }),
+    h("td", { text: periodoExato() ? fmt.int(agg.reach) : `≈ ${fmt.int(agg.reach)}`, title: periodoExato() ? "alcance único (Gerenciador)" : "soma dos alcances diários — aproximação" }),
     h("td", { text: fmt.brl(agg.cpm) }),
-    h("td", { text: fmt.pct(agg.ctr) }),
-    h("td", { text: fmt.int(agg.clicks) }),
-    h("td", { text: fmt.brl(agg.cpc) }),
+    h("td", { text: fmt.pct(agg.link_ctr) }),
+    h("td", { text: fmt.int(agg.link_clicks) }),
+    h("td", { text: fmt.brl(agg.link_cpc) }),
     h("td", { text: fmt.brl(agg.spend) }),
     h("td", { class: "act-cell" }, h("div", { class: "act" }, badge(as.level, as.level === "ok" ? "na meta" : as.level === "warn" ? "atenção" : as.level === "crit" ? "crítico" : "sem meta"), h("span", { text: as.text }))),
   );
@@ -1071,9 +1151,8 @@ function campaignRow(x, isAdset = false) {
 function renderCreatives() {
   const sec = $("#sec-criativos"); sec.replaceChildren();
   const m = state.meta;
-  const rows = rowsIn(state.since, state.until);
-  const byAd = groupBy(rows, "ad_id");
-  let items = m.ads.map((ad) => ({ ad, agg: byAd.get(ad.id) || finish(emptyAgg()), def: resultDefFor(ad.campaign_id), camp: idx.campaigns.get(ad.campaign_id), set: idx.adsets.get(ad.adset_id) }))
+  const byAd = groupBy(periodRows("ad"), "ad_id");
+  let items = m.ads.map((ad) => ({ ad, agg: byAd.get(ad.id) || finish(emptyAgg()), def: resultDefForAd(ad), camp: idx.campaigns.get(ad.campaign_id), set: idx.adsets.get(ad.adset_id) }))
     .map((x) => ({ ...x, as: assess(x.agg, x.def) }))
     .filter((x) => x.agg.spend > 0 || x.ad.effective_status === "ACTIVE");
   const f = state.creativeFilter;
@@ -1096,7 +1175,8 @@ function renderCreatives() {
         h("div", { class: "n", text: x.ad.name }),
         h("div", { class: "s", text: `${x.camp?.name || ""} · ${x.set?.name || ""}` }),
         h("div", { class: "m" }, h("span", {}, h("b", { text: fmt.brl(x.agg.spend) }), " gasto"), h("span", {}, h("b", { text: fmt.int(r) }), ` ${x.def.unit}${r === 1 ? "" : "s"}`), h("span", {}, h("b", { text: ok(cpr) ? (x.def.per ? fmt.brl(cpr) + "/mil" : fmt.brl(cpr)) : "—" }), ` por ${x.def.unit}`)),
-        h("div", { class: "m" }, h("span", {}, h("b", { text: fmt.pct(x.agg.ctr) }), " CTR"), h("span", {}, h("b", { text: fmt.brl(x.agg.cpm) }), " CPM"), h("span", {}, h("b", { text: fmt.int(x.agg.link_clicks) }), " cliques"), x.agg.thruplays ? h("span", {}, h("b", { text: fmt.int(x.agg.thruplays) }), " thruplays") : null),
+        h("div", { class: "m" }, h("span", {}, h("b", { text: fmt.pct(x.agg.link_ctr) }), " CTR (link)"), h("span", {}, h("b", { text: fmt.brl(x.agg.cpm) }), " CPM"), h("span", {}, h("b", { text: fmt.int(x.agg.link_clicks) }), " cliques no link"), x.agg.thruplays ? h("span", {}, h("b", { text: fmt.int(x.agg.thruplays) }), " thruplays") : null),
+        x.agg.follows > 0 ? h("div", { class: "m" }, h("span", {}, h("b", { text: fmt.int(x.agg.follows) }), " seguidores"), h("span", {}, h("b", { text: fmt.brl(x.agg.cost_per_follow) }), " por seguidor")) : null,
         x.def.kind === "sale" && x.agg.spend > 0 ? h("div", { class: "m" }, h("span", {}, h("b", { text: fmt.int(x.agg.carts) }), " carrinhos"), h("span", {}, h("b", { text: fmt.int(x.agg.checkouts) }), " checkouts"), h("span", {}, h("b", { text: fmt.brl(x.agg.revenue) }), " receita"), x.agg.revenue > 0 ? h("span", {}, h("b", { text: fmt.dec(x.agg.roas) }), " ROAS") : null) : null,
         x.ad.creative?.body ? h("div", { class: "copy", text: x.ad.creative.body }) : null,
       ),
@@ -1200,8 +1280,10 @@ function renderApp() {
     sec.append(block("App", "", h("div", { class: "placeholder" }, h("b", { text: "Nenhuma campanha de promoção do app nesta conta" }), h("span", { text: "A seção mostra as campanhas com objetivo Promoção do app (resultado = instalação)." }))));
     return;
   }
-  const rows = rowsIn(state.since, state.until).filter((r) => isApp(r.campaign_id));
-  const prevRows = rowsIn(state.prevSince, state.prevUntil).filter((r) => isApp(r.campaign_id));
+  const rows = periodRows("campaign").filter((r) => isApp(r.campaign_id));
+  const prevRows = periodRows("campaign", { prev: true }).filter((r) => isApp(r.campaign_id));
+  const dRows = rowsIn(state.since, state.until).filter((r) => isApp(r.campaign_id));
+  const campanhasComDados = new Set(rows.filter((r) => r.impressions > 0).map((r) => r.campaign_id)).size;
   const a = aggregate(rows), p = aggregate(prevRows);
   const instDef = resolveResultDef(GOAL_RESULT.APP_INSTALLS, m);
   const asInst = assess(a, instDef);
@@ -1220,7 +1302,9 @@ function renderApp() {
     tile({ label: "Cliques para a loja", value: fmt.int(a.link_clicks), delta: deltaBadge(a.link_clicks, p.link_clicks), sub: `CTR ${fmt.pct(a.link_ctr)} · CPC ${fmt.brl(a.link_cpc)}` }),
     tile({ label: "Clique → instalação", value: ok(div(a.installs * 100, a.link_clicks)) ? fmt.pct(div(a.installs * 100, a.link_clicks)) : "—", sub: "de quem clicou, quantos instalaram" }),
     tile({ label: "Impressões", value: fmt.int(a.impressions), delta: deltaBadge(a.impressions, p.impressions), sub: `CPM ${fmt.brl(a.cpm)}` }),
-    tile({ label: "Alcance (soma diária)", value: fmt.int(a.reach), sub: `frequência ${fmt.dec(a.frequency)}` }),
+    periodoExato() && campanhasComDados <= 1
+      ? tile({ label: "Alcance", value: fmt.int(a.reach), sub: `alcance único, igual ao Gerenciador · frequência ${fmt.dec(a.frequency)}` })
+      : tile({ label: "Alcance (aproximação)", value: `≈ ${fmt.int(a.reach)}`, sub: "soma de campanhas/dias — a mesma pessoa pode contar mais de uma vez" }),
   );
 
   // funil: mesma régua visual do funil da loja
@@ -1239,7 +1323,7 @@ function renderApp() {
 
   const days = []; for (let d = state.since; d <= state.until; d = addDays(d, 1)) days.push(d);
   const labels = days.map(fmt.dm);
-  const byDay = groupBy(rows, "date");
+  const byDay = groupBy(dRows, "date");
   const charts = h("div", { class: "grid c2" },
     chartCard("Instalações e cadastros por dia", "campanhas de app", [
       { name: "Instalações", color: "#199e70", values: days.map((d) => byDay.get(d)?.installs || 0) },
@@ -1265,12 +1349,13 @@ function renderApp() {
     })))) : h("div", { class: "empty", text: "Nenhum evento do app atribuído no período." });
 
   // públicos (conjuntos) das campanhas de app — mesma tabela da seção Meta Ads
-  const byAdset = groupBy(rows, "adset_id"), prevByAdset = groupBy(prevRows, "adset_id");
+  const byAdset = groupBy(periodRows("adset").filter((r) => isApp(r.campaign_id)), "adset_id");
+  const prevByAdset = groupBy(periodRows("adset", { prev: true }).filter((r) => isApp(r.campaign_id)), "adset_id");
   const sets = m.adsets.filter((s2) => isApp(s2.campaign_id))
     .map((s2) => ({ c: s2, agg: byAdset.get(s2.id) || finish(emptyAgg()), prev: prevByAdset.get(s2.id), def: instDef, parent: idx.campaigns.get(s2.campaign_id) }))
     .filter((y) => y.agg.spend > 0 || y.c.effective_status === "ACTIVE").sort((x, y) => y.agg.spend - x.agg.spend);
   const conjuntos = sets.length ? h("div", { class: "table-wrap" }, h("table", {},
-    h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { class: "l", text: "Conjunto" }), h("th", { text: "Orçam./dia" }), h("th", { text: "Instal." }), h("th", { text: "Custo/instal." }), h("th", { text: "Impress." }), h("th", { text: "Alcance" }), h("th", { text: "CPM" }), h("th", { text: "CTR" }), h("th", { text: "Cliques" }), h("th", { text: "CPC" }), h("th", { text: "Gasto" }), h("th", { class: "l", text: "Ação" }))),
+    h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { class: "l", text: "Conjunto" }), h("th", { text: "Orçam./dia" }), h("th", { text: "Instal." }), h("th", { text: "Custo/instal." }), h("th", { text: "Impress." }), h("th", { text: "Alcance" }), h("th", { text: "CPM" }), h("th", { text: "CTR (link)" }), h("th", { text: "Cliques no link" }), h("th", { text: "CPC (link)" }), h("th", { text: "Gasto" }), h("th", { class: "l", text: "Ação" }))),
     h("tbody", {}, ...sets.map((y) => campaignRow(y, true))))) : h("div", { class: "empty", text: "Sem conjuntos de app com dados no período." });
 
   // aparelho (últimos 30 dias, só campanhas de app)
