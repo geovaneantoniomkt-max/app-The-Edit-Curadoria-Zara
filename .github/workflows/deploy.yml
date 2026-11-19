@@ -17,9 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -54,23 +54,26 @@ jobs:
         run: |
           if [ -n "$CF_ACCOUNT_ID" ]; then
             echo "account_id=$CF_ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+            echo "Usando o secret CLOUDFLARE_ACCOUNT_ID."
             exit 0
           fi
-          resp=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts?per_page=50")
-          if [ "$(echo "$resp" | jq -r '.success')" != "true" ]; then
-            echo "::error::Não foi possível listar as contas da Cloudflare com o CLOUDFLARE_API_TOKEN: $(echo "$resp" | jq -c '.errors')"
-            exit 1
+          api() { curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+          verify=$(api "/user/tokens/verify")
+          echo "Verificação do token: $(echo "$verify" | jq -c '{success, status: .result.status, errors}')"
+          ids=$(api "/accounts?per_page=50" | jq -r '.result // [] | .[] | "\(.id) \(.name)"')
+          if [ -z "$ids" ]; then
+            ids=$(api "/memberships?per_page=50" | jq -r '.result // [] | .[] | "\(.account.id) \(.account.name)"')
           fi
-          count=$(echo "$resp" | jq '.result | length')
+          count=$(printf '%s' "$ids" | grep -c . || true)
           if [ "$count" = "1" ]; then
-            echo "account_id=$(echo "$resp" | jq -r '.result[0].id')" >> "$GITHUB_OUTPUT"
-            echo "Conta Cloudflare: $(echo "$resp" | jq -r '.result[0].name')"
+            echo "account_id=$(echo "$ids" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+            echo "Conta Cloudflare: $(echo "$ids" | cut -d' ' -f2-)"
           elif [ "$count" = "0" ]; then
-            echo "::error::O token não tem acesso a nenhuma conta. Crie o token a partir do modelo 'Edit Cloudflare Workers'."
+            echo "::error::O token não consegue listar contas (falta a permissão 'Account Settings: Read'). Crie o secret CLOUDFLARE_ACCOUNT_ID com o Account ID da Cloudflare (aparece em Workers & Pages, na lateral direita, ou na URL do painel: dash.cloudflare.com/<account_id>)."
             exit 1
           else
-            echo "::error::O token acessa $count contas. Crie o secret CLOUDFLARE_ACCOUNT_ID com o ID da conta onde o dashboard deve rodar."
-            echo "$resp" | jq -r '.result[] | "- \(.name): \(.id)"'
+            echo "::error::O token acessa $count contas. Crie o secret CLOUDFLARE_ACCOUNT_ID com o ID da conta onde o dashboard deve rodar:"
+            echo "$ids" | sed 's/^/- /'
             exit 1
           fi
 
