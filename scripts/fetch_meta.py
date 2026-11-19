@@ -245,10 +245,12 @@ _BASE_INSIGHT = [
 #  - conversions: traz os "Contatos" (contact_website), que não existem em `actions`.
 #  - results: a coluna "Resultados" do Gerenciador, com o indicador (tipo de resultado)
 #    que o próprio Gerenciador usa. É a fonte do resultado e do custo por resultado.
-#  - instagram_profile_follow_v2: "Seguidores no Instagram" atribuídos aos anúncios.
+#  - instagram_profile_follow: "Seguidores no Instagram" atribuídos aos anúncios (a coluna do
+#    Gerenciador). Atenção ao nome: a variante instagram_profile_follow_v2 é aceita pela API mas
+#    volta sempre vazia; a sonda de 19/11/2026 conferiu este campo com o Gerenciador, anúncio a anúncio.
 #  - profile_visit_view: "Visitas ao perfil do Instagram" (não é o mesmo que clique no link:
 #    na [TE] VISITAS_IG foram 20.522 visitas para 21.038 cliques no link).
-OPCIONAIS = ["conversions", "results", "instagram_profile_follow_v2", "profile_visit_view", "action_values"]
+OPCIONAIS = ["conversions", "results", "instagram_profile_follow", "profile_visit_view", "action_values"]
 INSIGHT_FIELDS = ",".join(_BASE_INSIGHT + OPCIONAIS)
 IDS_POR_NIVEL = {"account": [], "campaign": ["campaign_id"], "adset": ["campaign_id", "adset_id"],
                  "ad": ["campaign_id", "adset_id", "ad_id"]}
@@ -296,7 +298,7 @@ def linha(r, com_resultado: bool) -> dict:
         "thruplays": sum(inum(x.get("value")) for x in (r.get("video_thruplay_watched_actions") or [])),
         "video_p25": sum(inum(x.get("value")) for x in (r.get("video_p25_watched_actions") or [])),
         "video_p100": sum(inum(x.get("value")) for x in (r.get("video_p100_watched_actions") or [])),
-        "follows": campo_num(r.get("instagram_profile_follow_v2")),
+        "follows": campo_num(r.get("instagram_profile_follow")),
         "profile_visits": campo_num(r.get("profile_visit_view")),
         "actions": eventos(r),
         "values": valores(r),
@@ -553,7 +555,7 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
                 "time_range": json.dumps({"since": w30["since"], "until": w30["until"]}),
                 # resultado/seguidores/visitas não entram aqui: a quebra só precisa de gasto, cliques e ações,
                 # e um campo novo recusado com breakdown derrubaria a tabela inteira
-                "fields": ",".join(["campaign_id"] + [c for c in campos if c not in ("campaign_id", "adset_id", "ad_id", "date_start", "date_stop", "results", "instagram_profile_follow_v2", "profile_visit_view")]),
+                "fields": ",".join(["campaign_id"] + [c for c in campos if c not in ("campaign_id", "adset_id", "ad_id", "date_start", "date_stop", "results", "instagram_profile_follow", "profile_visit_view")]),
                 **UNIFIED, "limit": 500,
             })
             breakdowns[name] = [{**{k: r.get(k) for k in bd.split(",")}, **linha(r, False)} for r in rows]
