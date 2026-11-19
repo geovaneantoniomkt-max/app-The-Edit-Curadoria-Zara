@@ -1,94 +1,71 @@
 #!/usr/bin/env python3
-"""Sonda TEMPORÁRIA da Graph API: descobre quais campos/ações a API aceita para a conta.
-Imprime só nomes de campos, tipos de ação e proporções — nunca valores absolutos do cliente
-(o repositório é público e o log do Actions também)."""
+"""Sonda TEMPORÁRIA (rodada 2): formatos e semântica de datas. Só imprime nomes, tipos,
+datas e proporções — nunca valores absolutos do cliente (o log do Actions é público)."""
 import datetime as dt, json, os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 import fetch_meta as fm  # noqa: E402
 
 ACC = "act_2327717030881984"
-CAMP_IG = "120242674681220171"   # [TE] VISITAS_IG
 today = fm.today_in("America/Sao_Paulo")
-maxr = json.dumps({"since": "2023-11-01", "until": today.isoformat()})
-last7 = json.dumps({"since": (today - dt.timedelta(days=7)).isoformat(), "until": (today - dt.timedelta(days=1)).isoformat()})
+d = dt.timedelta(days=1)
+def pct(a, b): return "—" if not b else f"{100.0 * a / b:.1f}%"
 
-def tenta(nome, path, params):
-    try:
-        res = fm.api(path, params, retries=2)
-        print(f"[ok] {nome}")
-        return res
-    except Exception as e:  # noqa: BLE001
-        print(f"[recusado] {nome}: {str(e)[:220]}")
-        return None
+print("hoje (fuso da conta):", today)
+print("== A. formato dos campos novos no nível anúncio, série diária")
+r = fm.api(f"{ACC}/insights", {"level": "ad", "time_increment": 1, "limit": 20,
+    "time_range": json.dumps({"since": (today - 7 * d).isoformat(), "until": (today - d).isoformat()}),
+    "fields": "ad_id,results,instagram_profile_follow_v2,profile_visit_view,total_profile_visits", "use_unified_attribution_setting": "true"})
+tipos = {}
+for row in r.get("data", []):
+    for k in ("results", "instagram_profile_follow_v2", "profile_visit_view", "total_profile_visits"):
+        if k in row:
+            v = row[k]
+            tipos.setdefault(k, set()).add(type(v).__name__ + (f"[{type(v[0]).__name__}:{sorted(v[0].keys())}]" if isinstance(v, list) and v and isinstance(v[0], dict) else ""))
+print("   tipos:", {k: sorted(v) for k, v in tipos.items()})
+print("   linhas sem results:", sum(1 for row in r.get("data", []) if "results" not in row), "de", len(r.get("data", [])))
 
-def ratio(a, b):
-    return "—" if not b else f"{100.0 * a / b:.2f}%"
-
-print("== 1. campo `results` no nível campanha")
-r = tenta("results campanha", f"{ACC}/insights", {"level": "campaign", "time_range": maxr, "fields": "campaign_id,results,cost_per_result", "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": [CAMP_IG]}]), "use_unified_attribution_setting": "true"})
-if r:
-    for row in r.get("data", []):
-        print("   chaves:", sorted(row.keys()))
-        for it in row.get("results") or []:
-            print("   indicator:", it.get("indicator"), "| janelas:", [v.get("attribution_windows") for v in it.get("values", [])])
-
-print("== 2. `results` no nível anúncio com série diária")
-r = tenta("results anuncio diario", f"{ACC}/insights", {"level": "ad", "time_increment": 1, "time_range": last7, "fields": "ad_id,results", "limit": 50, "use_unified_attribution_setting": "true"})
-if r:
-    inds = sorted({it.get("indicator") for row in r.get("data", []) for it in (row.get("results") or [])})
-    print("   linhas:", len(r.get("data", [])), "| indicators:", inds)
-
-print("== 3. tipos de ação da campanha de visitas ao perfil (nomes)")
-r = tenta("actions campanha IG", f"{ACC}/insights", {"level": "campaign", "time_range": maxr, "fields": "actions,conversions,unique_actions", "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": [CAMP_IG]}]), "use_unified_attribution_setting": "true"})
-if r and r.get("data"):
-    row = r["data"][0]
-    for k in ("actions", "conversions", "unique_actions"):
-        print(f"   {k}:", sorted({a.get('action_type') for a in row.get(k) or []}))
-
-print("== 4. campos candidatos (um por vez)")
-for campo in ("instagram_profile_follow_v2", "profile_visit_view", "total_profile_visits", "instagram_follows", "instagram_profile_visits", "onsite_conversion.ig_follow"):
-    tenta(f"campo {campo}", f"{ACC}/insights", {"level": "campaign", "time_range": maxr, "fields": f"campaign_id,{campo}", "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": [CAMP_IG]}])})
-
-print("== 5. anúncios excluídos/arquivados entram na série por anúncio?")
-def soma_spend(params):
-    rows = fm.api_all(f"{ACC}/insights", params)
-    return sum(fm.fnum(x.get("spend")) for x in rows), len(rows)
-try:
-    acc = fm.api(f"{ACC}/insights", {"level": "account", "time_range": maxr, "fields": "spend", "use_unified_attribution_setting": "true"}).get("data", [{}])[0]
-    conta = fm.fnum(acc.get("spend"))
-    s1, n1 = soma_spend({"level": "ad", "time_range": maxr, "fields": "ad_id,spend", "limit": 500})
-    todos = ["ACTIVE", "PAUSED", "DELETED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED", "IN_PROCESS", "WITH_ISSUES"]
-    s2, n2 = soma_spend({"level": "ad", "time_range": maxr, "fields": "ad_id,spend", "limit": 500, "filtering": json.dumps([{"field": "ad.effective_status", "operator": "IN", "value": todos}])})
-    print(f"   sem filtro: {n1} anúncios, {ratio(s1, conta)} do gasto da conta")
-    print(f"   com todos os status: {n2} anúncios, {ratio(s2, conta)} do gasto da conta")
-except Exception as e:  # noqa: BLE001
-    print("   erro:", str(e)[:200])
-
-print("== 6. atribuição unificada muda instalações/resultados?")
-for uni in ("false", "true"):
-    r = tenta(f"unified={uni}", f"{ACC}/insights", {"level": "account", "time_range": maxr, "fields": "actions", "use_unified_attribution_setting": uni})
-    if r and r.get("data"):
-        a = fm.actions_to_dict(r["data"][0].get("actions"))
-        globals()[f"acts_{uni}"] = a
-if "acts_false" in globals() and "acts_true" in globals():
-    for k in ("mobile_app_install", "omni_app_install", "link_click", "landing_page_view", "omni_landing_page_view", "post_engagement", "onsite_conversion.messaging_conversation_started_7d"):
-        print(f"   {k}: unified/padrão = {ratio(acts_true.get(k, 0), acts_false.get(k, 0))}")
-
-print("== 7. Instagram: métricas de total e seguidores")
 cfg = json.load(open("public/config.json", encoding="utf-8"))
-ig = cfg["brands"][0]["meta"]["ig_user_id"]
-page = cfg["brands"][0]["meta"]["page_id"]
-try:
-    ptoken = fm.api(page, {"fields": "access_token"}).get("access_token")
-except Exception as e:  # noqa: BLE001
-    ptoken = None
-    print("   token de página indisponível:", str(e)[:160])
-since30 = (today - dt.timedelta(days=30)).isoformat()
-for metric, extra in (("reach", {}), ("follows_and_unfollows", {"breakdown": "follow_type"}), ("follower_count", {})):
-    for mt in ("total_value",):
-        r = tenta(f"IG {metric} {mt} {extra}", f"{ig}/insights", {"metric": metric, "period": "day", "metric_type": mt, "since": since30, "until": today.isoformat(), **extra}) if True else None
-        if r:
-            for d in r.get("data", []):
-                tv = d.get("total_value") or {}
-                print("   chaves total_value:", sorted(tv.keys()), "| breakdowns:", [b.get("dimension_keys") for b in tv.get("breakdowns", [])])
+ig = cfg["brands"][0]["meta"]["ig_user_id"]; page = cfg["brands"][0]["meta"]["page_id"]
+ptoken = fm.api(page, {"fields": "access_token"}).get("access_token")
+
+print("== B. datas dos valores diários (period=day) — qual dia cada end_time representa")
+res = fm.api(f"{ig}/insights", {"metric": "reach", "period": "day", "since": (today - 3 * d).isoformat(), "until": today.isoformat()})
+for dd in res.get("data", []):
+    print("   IG reach pedido", (today - 3 * d), "→", today, "| end_time:", [v.get("end_time") for v in dd.get("values", [])])
+res = fm.api(f"{page}/insights", {"metric": "page_post_engagements", "period": "day", "since": (today - 3 * d).isoformat(), "until": today.isoformat()}, token=ptoken)
+for dd in res.get("data", []):
+    print("   FB engajamento pedido", (today - 3 * d), "→", today, "| end_time:", [v.get("end_time") for v in dd.get("values", [])])
+
+print("== C. total_value: since=d,until=d  vs  since=d,until=d+1  (profile_views, 30 dias)")
+def tv(metric, a, b, extra=None):
+    res = fm.api(f"{ig}/insights", {"metric": metric, "period": "day", "metric_type": "total_value", "since": a.isoformat(), "until": b.isoformat(), **(extra or {})}, retries=2)
+    return {x.get("name"): (x.get("total_value") or {}) for x in res.get("data", [])}
+T = fm.inum(tv("profile_views", today - 30 * d, today)["profile_views"].get("value"))
+A = B = 0
+for i in range(30, 0, -1):
+    dia = today - i * d
+    try: A += fm.inum(tv("profile_views", dia, dia)["profile_views"].get("value"))
+    except Exception as e: print("   erro A", str(e)[:120]); break
+    try: B += fm.inum(tv("profile_views", dia, dia + d)["profile_views"].get("value"))
+    except Exception as e: print("   erro B", str(e)[:120]); break
+print(f"   soma (d,d) / total 30d = {pct(A, T)} | soma (d,d+1) / total 30d = {pct(B, T)}")
+
+print("== D. seguidores: follows_and_unfollows × follower_count (30 dias)")
+fu = tv("follows_and_unfollows", today - 30 * d, today, {"breakdown": "follow_type"})["follows_and_unfollows"]
+dims = {}
+for b in fu.get("breakdowns", []):
+    for it in b.get("results", []):
+        dims[tuple(it.get("dimension_values") or [])] = fm.inum(it.get("value"))
+fc = fm.api(f"{ig}/insights", {"metric": "follower_count", "period": "day", "since": (today - 30 * d).isoformat(), "until": today.isoformat()})
+soma_fc = sum(fm.inum(v.get("value")) for x in fc.get("data", []) for v in x.get("values", []))
+print("   dimensões:", list(dims.keys()))
+for k, v in dims.items():
+    print(f"   {k} / soma follower_count = {pct(v, soma_fc)}")
+print("   dias em follower_count:", sum(len(x.get('values', [])) for x in fc.get('data', [])))
+
+print("== E. alcance único 30d × soma do alcance diário")
+R = fm.inum(tv("reach", today - 30 * d, today)["reach"].get("value"))
+rd = fm.api(f"{ig}/insights", {"metric": "reach", "period": "day", "since": (today - 30 * d).isoformat(), "until": today.isoformat()})
+soma_r = sum(fm.inum(v.get("value")) for x in rd.get("data", []) for v in x.get("values", []))
+print(f"   único / soma diária = {pct(R, soma_r)}")
 print("fim")

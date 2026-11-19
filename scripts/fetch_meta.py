@@ -235,16 +235,25 @@ STATUS_FILTER = json.dumps([{
 }])
 
 _BASE_INSIGHT = [
-    "date_start", "date_stop", "campaign_id", "adset_id", "ad_id",
+    "date_start", "date_stop",
     "spend", "impressions", "reach", "frequency", "clicks", "inline_link_clicks",
     "actions", "action_values",
     "video_thruplay_watched_actions", "video_p25_watched_actions", "video_p100_watched_actions",
 ]
-# `conversions` traz os "Contatos" (contact_website), que não existem em `actions`.
-# O catálogo da API o documenta no nível campanha; aqui a série é por anúncio, então
-# pode ser recusado. Se for, seguimos sem ele — perder os contatos é ruim, perder a
-# coleta inteira é muito pior.
-INSIGHT_FIELDS = ",".join(_BASE_INSIGHT + ["conversions"])
+# Campos opcionais: se a API recusar algum, o coletor avisa e segue sem ele.
+#  - conversions: traz os "Contatos" (contact_website), que não existem em `actions`.
+#  - results: a coluna "Resultados" do Gerenciador, com o indicador (tipo de resultado)
+#    que o próprio Gerenciador usa. É a fonte do resultado e do custo por resultado.
+#  - instagram_profile_follow_v2: "Seguidores no Instagram" atribuídos aos anúncios.
+#  - profile_visit_view: "Visitas ao perfil do Instagram" (não é o mesmo que clique no link:
+#    na [TE] VISITAS_IG foram 20.522 visitas para 21.038 cliques no link).
+OPCIONAIS = ["conversions", "results", "instagram_profile_follow_v2", "profile_visit_view", "action_values"]
+INSIGHT_FIELDS = ",".join(_BASE_INSIGHT + OPCIONAIS)
+IDS_POR_NIVEL = {"account": [], "campaign": ["campaign_id"], "adset": ["campaign_id", "adset_id"],
+                 "ad": ["campaign_id", "adset_id", "ad_id"]}
+# Mesma semântica do Gerenciador: cada conjunto com a própria janela de atribuição.
+# (A sonda de nov/2026 mostrou que nesta conta o número não muda, mas fica explícito.)
+UNIFIED = {"use_unified_attribution_setting": "true"}
 
 
 def campo_recusado(e: "ApiError", campo: str) -> bool:
@@ -252,6 +261,73 @@ def campo_recusado(e: "ApiError", campo: str) -> bool:
     texto = str(e).lower()
     return campo in texto and any(p in texto for p in
                                   ("invalid", "unsupported", "not supported", "unknown", "param"))
+
+
+def campo_num(v) -> int:
+    """Campos de métrica chegam como número em texto ou como lista de {value}."""
+    if v is None:
+        return 0
+    if isinstance(v, list):
+        return sum(inum(x.get("value")) for x in v if isinstance(x, dict))
+    if isinstance(v, dict):
+        return inum(v.get("value"))
+    return inum(v)
+
+
+def resultado(r) -> dict | None:
+    """Campo `results`: [{indicator, values: [{value}]}]. None se o campo não veio."""
+    if "results" not in r:
+        return None
+    for it in r.get("results") or []:
+        vals = it.get("values") or []
+        return {"indicator": it.get("indicator"), "value": inum(vals[0].get("value")) if vals else 0}
+    return {"indicator": None, "value": 0}
+
+
+def linha(r, com_resultado: bool) -> dict:
+    """Uma linha de Insights no formato que o painel lê (série diária e totais por janela)."""
+    out = {k: r.get(k) for k in ("campaign_id", "adset_id", "ad_id") if r.get(k)}
+    out.update({
+        "spend": round(fnum(r.get("spend")), 2),
+        "impressions": inum(r.get("impressions")), "reach": inum(r.get("reach")),
+        "frequency": round(fnum(r.get("frequency")), 4),
+        "clicks": inum(r.get("clicks")), "link_clicks": inum(r.get("inline_link_clicks")),
+        "thruplays": sum(inum(x.get("value")) for x in (r.get("video_thruplay_watched_actions") or [])),
+        "video_p25": sum(inum(x.get("value")) for x in (r.get("video_p25_watched_actions") or [])),
+        "video_p100": sum(inum(x.get("value")) for x in (r.get("video_p100_watched_actions") or [])),
+        "follows": campo_num(r.get("instagram_profile_follow_v2")),
+        "profile_visits": campo_num(r.get("profile_visit_view")),
+        "actions": eventos(r),
+        "values": valores(r),
+    })
+    if com_resultado:
+        out["result"] = resultado(r) or {"indicator": None, "value": 0}
+    return out
+
+
+def janelas(today: dt.date, primeiro: dt.date) -> dict:
+    """Os atalhos do painel com a mesma régua do Gerenciador (fuso da conta):
+    "últimos N dias" terminam ontem; "este mês" e "desde o início" vão até hoje."""
+    ontem = today - dt.timedelta(days=1)
+    inicio_mes = today.replace(day=1)
+    fim_mes_ant = inicio_mes - dt.timedelta(days=1)
+    w = {
+        "last_7d": (today - dt.timedelta(days=7), ontem),
+        "last_14d": (today - dt.timedelta(days=14), ontem),
+        "last_30d": (today - dt.timedelta(days=30), ontem),
+        "this_month": (inicio_mes, today),
+        "last_month": (fim_mes_ant.replace(day=1), fim_mes_ant),
+        "maximum": (min(primeiro, today), today),
+    }
+    out = {}
+    for k, (a, b) in w.items():
+        n = (b - a).days + 1
+        item = {"since": a.isoformat(), "until": b.isoformat(), "days": n}
+        if k != "maximum":
+            item["prev_since"] = (a - dt.timedelta(days=n)).isoformat()
+            item["prev_until"] = (a - dt.timedelta(days=1)).isoformat()
+        out[k] = item
+    return out
 
 
 def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
@@ -367,92 +443,99 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
     until = today
     log(f"Série diária por anúncio: {since} a {until}")
 
+    campos = ["campaign_id", "adset_id", "ad_id"] + _BASE_INSIGHT + OPCIONAIS
+
+    def puxa_tolerante(params: dict) -> list:
+        """Pede os campos; se a API recusar um opcional, avisa, tira e tenta de novo."""
+        nonlocal campos
+        for _ in range(len(OPCIONAIS) + 1):
+            try:
+                return api_all(f"{acct}/insights", {**params, "fields": ",".join(campos), **UNIFIED, "limit": 500})
+            except ApiError as e:
+                recusado = next((c for c in OPCIONAIS if c in campos and campo_recusado(e, c)), None)
+                if not recusado:
+                    raise
+                warn(f"a API recusou `{recusado}`; seguindo sem ele.")
+                campos = [c for c in campos if c != recusado]
+        raise ApiError("campos recusados demais")
+
     daily = []
     action_types: set[str] = set()
-    campos = INSIGHT_FIELDS
     for a, b in daterange_chunks(since, until, 31):
-        def puxa(fields):
-            return api_all(f"{acct}/insights", {
-                "level": "ad",
-                "time_increment": 1,
-                "time_range": json.dumps({"since": a.isoformat(), "until": b.isoformat()}),
-                "fields": fields,
-                "limit": 500,
-            })
-        try:
-            rows = puxa(campos)
-        except ApiError as e:
-            if "conversions" in campos.split(",") and campo_recusado(e, "conversions"):
-                warn("a API recusou `conversions` no nível anúncio; seguindo sem os Contatos. "
-                     "Os Leads no site continuam vindo por `actions`.")
-                campos = ",".join(c for c in campos.split(",") if c != "conversions")
-                rows = puxa(campos)
-            elif "action_values" in campos.split(",") and campo_recusado(e, "action_values"):
-                # sem a receita o painel perde o ROAS, mas compras e funil seguem vindo por `actions`
-                warn("a API recusou `action_values` no nível anúncio; seguindo sem a Receita. "
-                     "Compras e funil continuam vindo por `actions`.")
-                campos = ",".join(c for c in campos.split(",") if c != "action_values")
-                rows = puxa(campos)
-            else:
-                raise
+        rows = puxa_tolerante({"level": "ad", "time_increment": 1,
+                               "time_range": json.dumps({"since": a.isoformat(), "until": b.isoformat()})})
+        com_res = "results" in campos
         for r in rows:
-            acts = eventos(r)
-            action_types.update(acts.keys())
-            daily.append({
-                "date": r.get("date_start"),
-                "campaign_id": r.get("campaign_id"), "adset_id": r.get("adset_id"), "ad_id": r.get("ad_id"),
-                "spend": round(fnum(r.get("spend")), 2),
-                "impressions": inum(r.get("impressions")), "reach": inum(r.get("reach")),
-                "frequency": round(fnum(r.get("frequency")), 3),
-                "clicks": inum(r.get("clicks")), "link_clicks": inum(r.get("inline_link_clicks")),
-                "thruplays": sum(inum(x.get("value")) for x in (r.get("video_thruplay_watched_actions") or [])),
-                "video_p25": sum(inum(x.get("value")) for x in (r.get("video_p25_watched_actions") or [])),
-                "video_p100": sum(inum(x.get("value")) for x in (r.get("video_p100_watched_actions") or [])),
-                "actions": acts,
-                "values": valores(r),
-            })
+            ln = linha(r, com_res)
+            action_types.update(ln["actions"].keys())
+            daily.append({"date": r.get("date_start"), **ln})
         log(f"  {a} a {b}: {len(rows)} linhas")
+    com_resultado = "results" in campos
 
-    # ---- totais exatos por preset (alcance/frequência não somam entre dias) -------------
+    # ---- totais exatos por janela, em cada nível ------------------------------------
+    # Alcance e frequência não somam entre dias nem entre anúncios. Para os atalhos de
+    # período, o painel usa estes totais, que são os mesmos números do Gerenciador.
+    W = janelas(today, since)
+    snapshots: dict = {}
+    for key, w in W.items():
+        for sufixo, a, b in (("", w["since"], w["until"]), (":prev", w.get("prev_since"), w.get("prev_until"))):
+            if not a:
+                continue
+            bloco = {}
+            for nivel, ids in IDS_POR_NIVEL.items():
+                try:
+                    campos_nivel = ids + [c for c in campos if c not in ("campaign_id", "adset_id", "ad_id")]
+                    rows = api_all(f"{acct}/insights", {
+                        "level": nivel, "time_range": json.dumps({"since": a, "until": b}),
+                        "fields": ",".join(campos_nivel), **UNIFIED, "limit": 500,
+                    })
+                    bloco[nivel] = [linha(r, com_resultado) for r in rows]
+                except ApiError as e:
+                    warn(f"totais {key}{sufixo} ({nivel}): {e}")
+            snapshots[key + sufixo] = bloco
+        log(f"  totais {key}: {w['since']} a {w['until']}")
+
+    # ---- conferência: a soma da série diária bate com os totais da API? ----------------
+    # Mostra só diferenças percentuais (o log do Actions é público).
+    def soma(rows, campo):
+        if campo == "results":
+            return sum((r.get("result") or {}).get("value", 0) for r in rows
+                       if (r.get("result") or {}).get("indicator") not in ("reach", "mixed"))
+        return sum(r.get(campo) or 0 for r in rows)
+    auditoria = {}
+    for key, w in W.items():
+        dias = [r for r in daily if w["since"] <= r["date"] <= w["until"]]
+        snap = snapshots.get(key) or {}
+        conta = snap.get("account") or []
+        camp = snap.get("campaign") or []
+        item = {}
+        for campo in ("spend", "impressions", "clicks", "link_clicks", "follows", "profile_visits"):
+            ref = soma(conta, campo)
+            item[campo] = {"serie": soma(dias, campo), "api": ref}
+        if com_resultado:
+            item["results"] = {"serie": soma(dias, "results"), "api": soma(snapshots.get(key, {}).get("ad") or [], "results")}
+        item["spend_campanhas"] = {"serie": soma(camp, "spend"), "api": soma(conta, "spend")}
+        for campo, par in item.items():
+            dif = par["serie"] - par["api"]
+            par["diff_pct"] = round(100.0 * dif / par["api"], 3) if par["api"] else (0.0 if not dif else None)
+            # tolerância: 0,5% e ao menos 1 unidade (a coleta dos dias e dos totais tem segundos de diferença)
+            if abs(dif) > 1 and (par["diff_pct"] is None or abs(par["diff_pct"]) > 0.5):
+                warn(f"conferência {key}: {campo} da série diária difere {par['diff_pct']}% do total da API")
+        auditoria[key] = {c: v["diff_pct"] for c, v in item.items()}
+    log("Conferência série × totais da API (diferença %): " + json.dumps(auditoria, ensure_ascii=False))
+
+    # ---- presets antigos (mantidos para compatibilidade) ------------------------------
     presets = {}
     for preset in ("last_7d", "last_14d", "last_30d", "this_month", "last_month", "maximum"):
-        try:
-            janela = {"date_preset": preset}
-            if preset == "maximum" and floor:
-                # "maximum" na API e a vida inteira da conta - na Wellness isso traz o Nucleo Casa
-                janela = {"time_range": json.dumps({"since": floor.isoformat(), "until": until.isoformat()})}
-            res = api(f"{acct}/insights", {
-                "level": "account", **janela,
-                "fields": "spend,impressions,reach,frequency,clicks,inline_link_clicks,actions,action_values,conversions,date_start,date_stop",
-            })
-            rows = res.get("data", [])
-            if rows:
-                r = rows[0]
-                presets[preset] = {
-                    "since": r.get("date_start"), "until": r.get("date_stop"),
-                    "spend": round(fnum(r.get("spend")), 2), "impressions": inum(r.get("impressions")),
-                    "reach": inum(r.get("reach")), "frequency": round(fnum(r.get("frequency")), 3),
-                    "clicks": inum(r.get("clicks")), "link_clicks": inum(r.get("inline_link_clicks")),
-                    "actions": eventos(r),
-                    "values": valores(r),
-                }
-        except ApiError as e:
-            warn(f"preset {preset}: {e}")
-
-    # ---- alcance por campanha no período total e nos últimos 7/30 dias -------------
+        conta = (snapshots.get(preset) or {}).get("account") or []
+        if conta:
+            r = conta[0]
+            presets[preset] = {"since": W[preset]["since"], "until": W[preset]["until"], **{k: r[k] for k in (
+                "spend", "impressions", "reach", "frequency", "clicks", "link_clicks", "actions", "values")}}
     campaign_reach = {}
     for preset in ("last_7d", "last_30d", "maximum"):
-        try:
-            janela = {"date_preset": preset}
-            if preset == "maximum" and floor:
-                janela = {"time_range": json.dumps({"since": floor.isoformat(), "until": until.isoformat()})}
-            rows = api_all(f"{acct}/insights", {
-                "level": "campaign", **janela,
-                "fields": "campaign_id,reach,frequency,spend",
-            })
-            campaign_reach[preset] = {r["campaign_id"]: {"reach": inum(r.get("reach")), "frequency": round(fnum(r.get("frequency")), 3)} for r in rows}
-        except ApiError as e:
-            warn(f"alcance por campanha ({preset}): {e}")
+        campaign_reach[preset] = {r["campaign_id"]: {"reach": r["reach"], "frequency": r["frequency"]}
+                                  for r in (snapshots.get(preset) or {}).get("campaign") or [] if r.get("campaign_id")}
 
     # ---- breakdowns úteis (últimos 30 dias): idade/gênero, região, posicionamento, aparelho --
     # impression_device separa iPhone de Android: na Black de 2026 o custo por clique no
@@ -462,21 +545,53 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
                      ("platform_position", "publisher_platform,platform_position"),
                      ("device", "impression_device")):
         try:
+            w30 = W["last_30d"]
             rows = api_all(f"{acct}/insights", {
-                "level": "campaign", "date_preset": "last_30d", "breakdowns": bd,
-                "fields": "campaign_id,spend,impressions,reach,clicks,inline_link_clicks,actions,action_values,conversions",
-                "limit": 500,
+                "level": "campaign", "breakdowns": bd,
+                "time_range": json.dumps({"since": w30["since"], "until": w30["until"]}),
+                # resultado/seguidores/visitas não entram aqui: a quebra só precisa de gasto, cliques e ações,
+                # e um campo novo recusado com breakdown derrubaria a tabela inteira
+                "fields": ",".join(["campaign_id"] + [c for c in campos if c not in ("campaign_id", "adset_id", "ad_id", "date_start", "date_stop", "results", "instagram_profile_follow_v2", "profile_visit_view")]),
+                **UNIFIED, "limit": 500,
             })
-            breakdowns[name] = [{
-                "campaign_id": r.get("campaign_id"),
-                **{k: r.get(k) for k in bd.split(",")},
-                "spend": round(fnum(r.get("spend")), 2), "impressions": inum(r.get("impressions")),
-                "reach": inum(r.get("reach")), "clicks": inum(r.get("clicks")),
-                "link_clicks": inum(r.get("inline_link_clicks")), "actions": eventos(r),
-                "values": valores(r),
-            } for r in rows]
+            breakdowns[name] = [{**{k: r.get(k) for k in bd.split(",")}, **linha(r, False)} for r in rows]
         except ApiError as e:
             warn(f"breakdown {name}: {e}")
+
+    # ---- metadados de objetos que gastaram mas não vieram nas listas (ex.: excluídos) ----
+    conhecidos = {"campaign": {c["id"] for c in campaigns}, "adset": {x["id"] for x in adsets}, "ad": {x["id"] for x in ads}}
+    faltam = {nivel: sorted({r.get(f"{nivel}_id") for r in daily if r.get(f"{nivel}_id")} - conhecidos[nivel])
+              for nivel in ("campaign", "adset", "ad")}
+    campos_meta = {"campaign": "id,name,status,effective_status,objective,daily_budget,lifetime_budget,created_time,start_time,stop_time",
+                   "adset": "id,name,campaign_id,status,effective_status,optimization_goal,daily_budget,lifetime_budget,promoted_object",
+                   "ad": f"id,name,adset_id,campaign_id,status,effective_status,creative{{{creative_fields}}}"}
+    for nivel, ids in faltam.items():
+        for i in range(0, len(ids), 50):
+            try:
+                res = api("", {"ids": ",".join(ids[i:i + 50]), "fields": campos_meta[nivel]})
+            except ApiError as e:
+                warn(f"metadados de {len(ids)} {nivel}(s) fora das listas: {e}")
+                break
+            for oid, o in res.items():
+                if nivel == "campaign":
+                    campaigns.append({"id": oid, "name": o.get("name"), "status": o.get("status"), "effective_status": o.get("effective_status"),
+                                      "objective": o.get("objective"), "daily_budget": money(o.get("daily_budget")), "lifetime_budget": money(o.get("lifetime_budget")),
+                                      "created_time": o.get("created_time"), "start_time": o.get("start_time"), "stop_time": o.get("stop_time")})
+                elif nivel == "adset":
+                    po = o.get("promoted_object") or {}
+                    adsets.append({"id": oid, "name": o.get("name"), "campaign_id": o.get("campaign_id"), "status": o.get("status"),
+                                   "effective_status": o.get("effective_status"), "optimization_goal": o.get("optimization_goal"),
+                                   "daily_budget": money(o.get("daily_budget")), "lifetime_budget": money(o.get("lifetime_budget")),
+                                   "promoted_event": po.get("custom_event_type"), "targeting": {}})
+                else:
+                    cr = o.get("creative") or {}
+                    ads.append({"id": oid, "name": o.get("name"), "adset_id": o.get("adset_id"), "campaign_id": o.get("campaign_id"),
+                                "status": o.get("status"), "effective_status": o.get("effective_status"),
+                                "creative": {"id": cr.get("id"), "thumbnail_url": cr.get("thumbnail_url"), "image_url": cr.get("image_url"),
+                                             "body": (cr.get("body") or "")[:400], "object_type": cr.get("object_type"),
+                                             "instagram_permalink_url": cr.get("instagram_permalink_url")}})
+        if ids:
+            log(f"  {len(ids)} {nivel}(s) com gasto fora das listas: metadados buscados por id")
 
     # ---- descarta a era anterior da conta ------------------------------------------
     descartadas = 0
@@ -505,6 +620,11 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
         "daily": daily,
         "presets": presets,
         "campaign_reach": campaign_reach,
+        "windows": W,
+        "snapshots": snapshots,
+        "audit": auditoria,
+        "has_results": com_resultado,
+        "fields_used": campos,
         "breakdowns": breakdowns,
         "action_types_seen": sorted(action_types),
         "warnings": [],
