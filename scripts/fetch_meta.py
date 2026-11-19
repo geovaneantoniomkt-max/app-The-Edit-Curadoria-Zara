@@ -515,6 +515,11 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
         item = {}
         for campo in ("spend", "impressions", "clicks", "link_clicks", "follows", "profile_visits"):
             ref = soma(conta, campo)
+            if campo == "follows" and snap.get("ad"):
+                # A Meta não põe no total da CONTA os seguidores antigos (nesta conta, jan/2025 e antes
+                # aparecem como zero no nível conta, mas não por anúncio/campanha). A régua aqui é a
+                # soma por anúncio, que é o número de cada linha do Gerenciador.
+                ref = soma(snap["ad"], campo)
             item[campo] = {"serie": soma(dias, campo), "api": ref}
         if com_resultado:
             item["results"] = {"serie": soma(dias, "results"), "api": soma(snapshots.get(key, {}).get("ad") or [], "results")}

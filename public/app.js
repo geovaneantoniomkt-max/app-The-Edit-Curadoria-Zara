@@ -1969,11 +1969,12 @@ function blocoSeguidores(vivas, igs) {
 
   // anúncios do período agrupados pela publicação que impulsionam
   const porPost = new Map();
-  let segConta = 0;
+  let segConta = 0, segAnuncios = 0;
   for (const b of vivas) {
     segConta += sum(periodRows("account", { meta: b.meta }), (r) => r.follows);
     const midias = new Map((b.organic?.instagram?.media || []).map((x) => [x.id, x]));
     for (const r of periodRows("ad", { meta: b.meta })) {
+      segAnuncios += r.follows || 0;
       if (!(r.spend > 0 || r.follows > 0)) continue;
       const ad = b.idx.ads.get(r.ad_id);
       const chave = ad?.creative?.instagram_media_id || ad?.creative?.instagram_permalink_url || r.ad_id;
@@ -1999,8 +2000,12 @@ function blocoSeguidores(vivas, igs) {
   const segIG = winIG ? sum(igs, (ig) => ig.totals?.[winIG]?.follows) : null, saiIG = winIG ? sum(igs, (ig) => ig.totals?.[winIG]?.unfollows) : null;
   const temIG = winIG && igs.some((ig) => ok(ig.totals?.[winIG]?.follows));
 
+  // Em períodos longos a Meta não põe no total da CONTA os seguidores antigos (jan/2025 e antes aparecem
+  // como zero no nível conta, mas não por anúncio). O número grande é a soma por anúncio, que fecha com os cards.
+  const contaMenor = segAnuncios - segConta > 1;
   const tiles = h("div", { class: "grid c4" },
-    tile({ label: "Seguidores pelos anúncios", value: "+" + fmt.int(segConta), sub: "coluna “Seguidores no Instagram” do Gerenciador · todas as campanhas", accent: true }),
+    tile({ label: "Seguidores pelos anúncios", value: "+" + fmt.int(contaMenor ? segAnuncios : segConta), accent: true,
+      sub: contaMenor ? `soma anúncio a anúncio (Gerenciador) · o total da conta mostra ${fmt.int(segConta)}: a Meta não inclui nele os seguidores antigos` : "coluna “Seguidores no Instagram” do Gerenciador · todas as campanhas" }),
     tile({ label: "Custo por seguidor", value: fmt.brl(div(invPosts, segPosts)), sub: `${fmt.brl(invPosts)} investidos nos ${fmt.int(posts.length)} posts abaixo` }),
     tile({ label: "Menor custo por seguidor", value: melhor ? fmt.brl(melhor.spend / melhor.follows) : "—", sub: melhor ? `${tituloDe(melhor).slice(0, 60)} · ${fmt.int(melhor.follows)} seguidores` : "posts com 10 ou mais seguidores" }),
     tile({ label: "Seguidores do perfil", value: fmt.int(sum(igs, (ig) => ig.followers)),
@@ -2034,7 +2039,8 @@ function blocoSeguidores(vivas, igs) {
   const nota = h("div", { class: "card note-card" },
     "Seguidores e investimento vêm do Gerenciador, no mesmo período (atribuição de cada conjunto). ",
     "Um post usado em mais de uma campanha soma tudo o que foi investido nele; quando é o caso, o card mostra cada campanha com seguidores · custo por seguidor. ",
-    semSeg.length ? `${fmt.int(semSeg.length)} ${semSeg.length > 1 ? "posts com investimento no período não trouxeram" : "post com investimento no período não trouxe"} seguidor (${fmt.brl(sum(semSeg, (x) => x.spend))}).` : "");
+    semSeg.length ? `${fmt.int(semSeg.length)} ${semSeg.length > 1 ? "posts com investimento no período não trouxeram" : "post com investimento no período não trouxe"} seguidor (${fmt.brl(sum(semSeg, (x) => x.spend))}). ` : "",
+    contaMenor ? `Neste período o total da conta no Gerenciador (${fmt.int(segConta)}) é menor que a soma dos anúncios (${fmt.int(segAnuncios)}): a Meta não inclui no total da conta os seguidores mais antigos — em janeiro de 2025 o total da conta mostra zero, embora os anúncios daquele mês tenham trazido seguidores. Cada card usa o número do próprio anúncio, igual à linha dele no Gerenciador.` : "");
 
   return block("Seguidores pelos anúncios", `${perTxt} · custo por seguidor de cada post impulsionado`,
     tiles,

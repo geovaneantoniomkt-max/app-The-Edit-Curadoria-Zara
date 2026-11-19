@@ -63,7 +63,11 @@ e confere, sem trocar o painel do cliente. O agendamento diário também roda s�
   consolidada, o bloco **Seguidores pelos anúncios** agrupa os anúncios pela publicação do Instagram que
   impulsionam: custo por seguidor = investido no post ÷ seguidores que os anúncios dele trouxeram, no
   período escolhido. Um post usado em mais de uma campanha soma todo o investimento nele, e o card
-  mostra o detalhe por campanha.
+  mostra o detalhe por campanha. Em períodos longos a Meta não inclui no total da **conta** os seguidores
+  antigos (em jan/2025 o nível conta mostra zero; por anúncio e por campanha os números existem). Em
+  "desde o início" isso dá 52.824 no total da conta contra 71.332 somando os anúncios (19/11/2026). O painel
+  usa a soma por anúncio, que fecha com os cards, e mostra o total da conta ao lado. Nos atalhos de 7, 14 e
+  30 dias, este mês e mês passado os dois números são iguais.
 
 ## Frentes, resultados e metas
 
