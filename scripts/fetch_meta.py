@@ -237,7 +237,7 @@ STATUS_FILTER = json.dumps([{
 _BASE_INSIGHT = [
     "date_start", "date_stop",
     "spend", "impressions", "reach", "frequency", "clicks", "inline_link_clicks",
-    "actions", "action_values",
+    "actions",
     "video_thruplay_watched_actions", "video_p25_watched_actions", "video_p100_watched_actions",
 ]
 # Campos opcionais: se a API recusar algum, o coletor avisa e segue sem ele.
