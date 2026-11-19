@@ -1,25 +1,13 @@
-# Cloudflare Worker do dashboard da The Edit.
-# Segredos (NÃO coloque aqui): META_ACCESS_TOKEN, DASHBOARD_PASSWORD, SESSION_SECRET
+# Cloudflare Pages: dashboard da The Edit.
+# Segredos (NÃO coloque aqui): META_ACCESS_TOKEN, DASHBOARD_PASSWORD, SESSION_SECRET.
 # Eles são enviados pelo GitHub Actions (.github/workflows/deploy.yml) a partir dos
 # secrets do repositório.
 name = "the-edit-dashboard"
-main = "src/index.js"
+pages_build_output_dir = "./dist"
 compatibility_date = "2025-10-01"
-workers_dev = true
-preview_urls = false
-
-[assets]
-directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
-html_handling = "none"
-not_found_handling = "none"
 
 [vars]
 # Conta de anúncios da The Edit na Meta (act_<id>)
 META_AD_ACCOUNT_ID = "2327717030881984"
 META_API_VERSION = "v24.0"
 BRAND_NAME = "The Edit"
-
-[observability]
-enabled = true

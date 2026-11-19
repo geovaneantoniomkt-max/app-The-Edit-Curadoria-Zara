@@ -1,4 +1,4 @@
-name: Deploy do dashboard (Cloudflare Workers)
+name: Deploy do dashboard (Cloudflare Pages)
 
 on:
   push:
@@ -77,18 +77,31 @@ jobs:
             exit 1
           fi
 
-      - name: Publicar o Worker
-        id: deploy
+      - name: Testar o token da Meta
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: |
+          account=$(grep -E '^META_AD_ACCOUNT_ID' wrangler.toml | cut -d'"' -f2)
+          version=$(grep -E '^META_API_VERSION' wrangler.toml | cut -d'"' -f2)
+          resp=$(curl -sS -G "https://graph.facebook.com/$version/act_$account" --data-urlencode "fields=name,account_status" --data-urlencode "access_token=$META_ACCESS_TOKEN")
+          if echo "$resp" | jq -e '.error' > /dev/null; then
+            echo "::warning::O token da Meta não conseguiu ler a conta act_$account: $(echo "$resp" | jq -r '.error.message')"
+          else
+            echo "Token da Meta OK: conta '$(echo "$resp" | jq -r '.name')' (status $(echo "$resp" | jq -r '.account_status'))."
+          fi
+
+      - name: Criar o projeto no Cloudflare Pages (se ainda não existir)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.cf.outputs.account_id }}
         run: |
-          set -o pipefail
-          npx wrangler deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"
-          url=$(grep -Eo 'https://[a-zA-Z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -n1 || true)
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          if npx wrangler pages project list 2>&1 | grep -q " the-edit-dashboard "; then
+            echo "Projeto the-edit-dashboard já existe."
+          else
+            npx wrangler pages project create the-edit-dashboard --production-branch main
+          fi
 
-      - name: Enviar secrets para o Worker
+      - name: Enviar secrets para o Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.cf.outputs.account_id }}
@@ -98,34 +111,47 @@ jobs:
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
         run: |
           umask 077
-          file="$RUNNER_TEMP/worker-secrets.json"
+          file="$RUNNER_TEMP/pages-secrets.json"
           jq -n \
             --arg meta "$META_ACCESS_TOKEN" \
             --arg pass "$DASHBOARD_PASSWORD" \
             --arg sess "$SESSION_SECRET" \
             --arg app "$META_APP_SECRET" \
             '{META_ACCESS_TOKEN: $meta, DASHBOARD_PASSWORD: $pass, SESSION_SECRET: $sess} + (if $app != "" then {META_APP_SECRET: $app} else {} end)' > "$file"
-          npx wrangler secret bulk "$file"
+          npx wrangler pages secret bulk "$file" --project-name the-edit-dashboard
           rm -f "$file"
 
-      - name: Testar se o dashboard responde
-        if: steps.deploy.outputs.url != ''
+      - name: Publicar no Cloudflare Pages
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.cf.outputs.account_id }}
         run: |
-          for i in 1 2 3 4 5 6; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "${{ steps.deploy.outputs.url }}/healthz" || true)
-            if [ "$code" = "200" ]; then echo "OK"; exit 0; fi
-            sleep 5
+          set -o pipefail
+          npm run build
+          npx wrangler pages deploy --project-name the-edit-dashboard --branch main --commit-dirty=true 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          preview=$(grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' "$RUNNER_TEMP/deploy.log" | tail -n1 || true)
+          domain=$(echo "$preview" | sed -E 's#https://[a-z0-9]+\.#https://#')
+          echo "preview=$preview" >> "$GITHUB_OUTPUT"
+          echo "url=${domain:-https://the-edit-dashboard.pages.dev}" >> "$GITHUB_OUTPUT"
+
+      - name: Testar se o dashboard responde
+        run: |
+          url="${{ steps.deploy.outputs.preview }}"
+          [ -n "$url" ] || url="${{ steps.deploy.outputs.url }}"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            body=$(curl -s "$url/healthz" || true)
+            if echo "$body" | jq -e '.ok == true' > /dev/null 2>&1; then echo "OK: $body"; exit 0; fi
+            sleep 6
           done
-          echo "::warning::O endpoint /healthz ainda não respondeu 200 (pode levar alguns segundos para propagar)."
+          echo "::warning::$url/healthz ainda não respondeu ok (resposta: ${body:-vazia}). Pode levar alguns minutos para o domínio propagar."
 
       - name: Resumo
         run: |
           {
             echo "## Dashboard The Edit publicado"
-            if [ -n "${{ steps.deploy.outputs.url }}" ]; then
-              echo ""
-              echo "Acesse: ${{ steps.deploy.outputs.url }}"
-            fi
+            echo ""
+            echo "Acesse: ${{ steps.deploy.outputs.url }}"
             echo ""
             echo "Entre com a senha definida no secret DASHBOARD_PASSWORD."
           } >> "$GITHUB_STEP_SUMMARY"

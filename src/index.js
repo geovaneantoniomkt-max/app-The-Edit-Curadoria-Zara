@@ -1,4 +1,4 @@
-// Worker do dashboard da The Edit.
+// Servidor do dashboard da The Edit (Cloudflare Pages, modo avançado: dist/_worker.js).
 // - /login (GET/POST), /logout: autenticação por senha única
 // - /api/report, /api/ads, /api/breakdown: dados da Meta (somente leitura)
 // - demais rotas: arquivos estáticos de ./public (somente com sessão válida)
@@ -43,8 +43,11 @@ function redirect(location) {
   return new Response(null, { status: 303, headers: { Location: location, 'Cache-Control': 'no-store' } });
 }
 
+// No Pages, os .html são servidos sem a extensão (/login.html -> /login).
+const ASSET_PATHS = { '/index.html': '/', '/login.html': '/login' };
+
 async function serveAsset(env, request, path) {
-  const assetUrl = new URL(path, request.url);
+  const assetUrl = new URL(ASSET_PATHS[path] || path, request.url);
   const res = await env.ASSETS.fetch(new Request(assetUrl.toString(), { method: 'GET' }));
   const out = new Response(res.body, res);
   out.headers.set('Cache-Control', path.endsWith('.html') ? 'no-store' : 'no-cache');
@@ -76,9 +79,12 @@ async function route(request, env) {
   const url = new URL(request.url);
   const { pathname } = url;
 
-  if (pathname === '/healthz') return text('ok');
-
   const missing = missingConfig(env);
+  if (pathname === '/healthz') {
+    // Só diz se a configuração existe (nunca os valores).
+    return json({ ok: missing.length === 0, missing, ad_account: Boolean(env.META_AD_ACCOUNT_ID) }, missing.length ? 500 : 200);
+  }
+
   if (missing.length) {
     return text(`Configuração incompleta: defina os secrets ${missing.join(', ')} no Worker (veja o README).`, 500);
   }
