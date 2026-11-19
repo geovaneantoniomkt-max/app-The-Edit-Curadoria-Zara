@@ -1,0 +1,19 @@
+{
+  "name": "the-edit-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard de performance da The Edit (Meta Ads + App) rodando em Cloudflare Workers.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:mock": "node dev/mock-graph.mjs",
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.js && node --check src/auth.js && node --check src/meta.js && node --check src/metrics.js && node --check src/report.js && node --check public/app.js"
+  },
+  "devDependencies": {
+    "wrangler": "4.45.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
