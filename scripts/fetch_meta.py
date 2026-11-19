@@ -93,7 +93,7 @@ class ApiError(Exception):
         return f"{super().__str__()} (code={self.code}, subcode={self.subcode}, http={self.http})"
 
 
-def api(path: str, params: dict | None = None, token: str | None = None, retries: int = 5) -> dict:
+def api(path: str, params: dict | None = None, token: str | None = None, retries: int = 7) -> dict:
     """GET na Graph API com retry/backoff. Levanta ApiError em erro definitivo."""
     q = dict(params or {})
     q["access_token"] = token or TOKEN
@@ -114,7 +114,8 @@ def api(path: str, params: dict | None = None, token: str | None = None, retries
             transient = e.code >= 500 or code in (1, 2, 4, 17, 32, 613, 80000, 80004)
             last_err = ApiError(err.get("message", "erro"), code, err.get("error_subcode"), e.code)
             if transient and attempt < retries - 1:
-                wait = min(120, 5 * (2 ** attempt))
+                # limite de uso (17/4/32/613): a janela da Meta é de minutos — espera até ~5 min no total
+                wait = min(120, (15 if code in (4, 17, 32, 613) else 5) * (2 ** attempt))
                 log(f"  retry em {wait}s: {last_err}")
                 time.sleep(wait)
                 continue
@@ -636,6 +637,15 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
 # Orgânico: Página do Facebook + Instagram
 # ----------------------------------------------------------------------------
 
+def sem_datas_repetidas(series: list) -> list:
+    """Uma data por dia (fica o último valor recebido) e em ordem: somar a série nunca conta um dia duas vezes."""
+    por_dia = {}
+    for p in series:
+        if p.get("date"):
+            por_dia[p["date"]] = p
+    return [por_dia[d] for d in sorted(por_dia)]
+
+
 def dia_do_valor_fb(end_time: str | None) -> str:
     """Página do Facebook: o end_time de um valor diário marca o FIM do dia (sonda de nov/2026:
     pedido 16→19 voltou end_time 17, 18 e 19). O dia medido é o anterior."""
@@ -693,16 +703,17 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str, midias_anuncio: list
             for m in candidatos:
                 series = []
                 try:
-                    for a, b in daterange_chunks(since_90, today, 90):
-                        # until exclusivo e no máximo hoje: a série termina ontem (dia completo)
+                    # só até ontem (dia completo); until exclusivo. Um pedaço com since == until
+                    # devolvia de novo o dia anterior e duplicava a data na série.
+                    for a, b in daterange_chunks(since_90, today - dt.timedelta(days=1), 90):
                         res = api(f"{page_id}/insights", {
                             "metric": m, "period": "day",
-                            "since": a.isoformat(), "until": min(b + dt.timedelta(days=1), today).isoformat(),
+                            "since": a.isoformat(), "until": (b + dt.timedelta(days=1)).isoformat(),
                         }, token=page_token, retries=2)
                         for d in res.get("data", []):
                             for v in d.get("values", []):
                                 series.append({"date": dia_do_valor_fb(v.get("end_time")), "value": inum(v.get("value"))})
-                    fb["daily"][chave] = series
+                    fb["daily"][chave] = sem_datas_repetidas(series)
                     if m != chave:
                         log(f"  Facebook: '{chave}' saiu do ar, usando '{m}' no lugar")
                     break
@@ -746,16 +757,16 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str, midias_anuncio: list
         for m, span in (("reach", since_90), ("follower_count", since_30)):
             series = []
             try:
-                for a, b in daterange_chunks(span, today, 30):
-                    # until exclusivo e no máximo hoje: sem o dia de hoje pela metade
+                # só até ontem (sem o dia de hoje pela metade); until exclusivo
+                for a, b in daterange_chunks(span, today - dt.timedelta(days=1), 30):
                     res = api(f"{ig_id}/insights", {
                         "metric": m, "period": "day",
-                        "since": a.isoformat(), "until": min(b + dt.timedelta(days=1), today).isoformat(),
+                        "since": a.isoformat(), "until": (b + dt.timedelta(days=1)).isoformat(),
                     }, token=ig_tok)
                     for d in res.get("data", []):
                         for v in d.get("values", []):
                             series.append({"date": (v.get("end_time") or "")[:10], "value": inum(v.get("value"))})
-                ig["daily"][m] = series
+                ig["daily"][m] = sem_datas_repetidas(series)
             except ApiError as e:
                 out["warnings"].append(f"Instagram métrica {m}: {e}")
         # totais por janela (metric_type=total_value)
