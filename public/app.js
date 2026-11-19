@@ -1958,66 +1958,88 @@ function renderConsolidadoFrentes(sec, vivas, porMarca) {
 }
 
 
-/* Seguidores do Instagram: o que o Instagram registra (todas as origens) e os posts impulsionados.
-   A coluna "Seguidores no Instagram" do Gerenciador (seguidores atribuídos aos anúncios) NÃO é liberada
-   pela API pública da Meta (testado nas versões v23 a v26: o campo volta vazio), então não aparece aqui
-   e nenhum custo por seguidor é estimado no lugar dela. */
+/* Seguidores que vieram dos anúncios, post a post: a coluna "Seguidores no Instagram" do Gerenciador
+   (campo instagram_profile_follow da API) e o investimento do mesmo período. Custo por seguidor =
+   investido no post ÷ seguidores que os anúncios dele trouxeram. Os atalhos de período usam os totais
+   exatos da API; período personalizado soma os dias. */
+const ROTULO_PRESET = { 7: "últimos 7 dias", 14: "últimos 14 dias", 30: "últimos 30 dias", month: "este mês", lastmonth: "mês passado", max: "desde o início" };
+const VISITA_PERFIL = ["profile_visit_view", "total_profile_visits"];
 function blocoSeguidores(vivas, igs) {
-  const winKey = { 7: "last_7d", 14: "last_14d", 30: "last_30d" }[state.preset] || "last_30d";
-  const winLbl = { last_7d: "últimos 7 dias", last_14d: "últimos 14 dias", last_30d: "últimos 30 dias" }[winKey];
-  const T = (ig) => ig.totals?.[winKey] || {};
-  const temFU = igs.some((ig) => ok(T(ig).follows));
-  const seguiram = sum(igs, (ig) => T(ig).follows), deixaram = sum(igs, (ig) => T(ig).unfollows);
-  const tiles = h("div", { class: "grid c4" },
-    tile({ label: "Seguidores no Instagram", value: fmt.int(sum(igs, (ig) => ig.followers)), sub: igs.map((ig) => "@" + ig.username).join(", "), accent: true }),
-    tile({ label: `Seguiram · ${winLbl}`, value: temFU ? "+" + fmt.int(seguiram) : "—", sub: "Instagram Insights · todas as origens (anúncio, orgânico, indicação)" }),
-    tile({ label: `Deixaram de seguir · ${winLbl}`, value: temFU ? fmt.int(deixaram) : "—", sub: "inclui contas que saíram do Instagram" }),
-    tile({ label: `Saldo · ${winLbl}`, value: temFU ? (seguiram - deixaram >= 0 ? "+" : "") + fmt.int(seguiram - deixaram) : "—", sub: "seguiram − deixaram de seguir" }),
-  );
+  const perTxt = periodoExato(vivas[0]?.meta) ? ROTULO_PRESET[state.preset] : `${fmt.date(state.since)} a ${fmt.date(state.until)}`;
 
-  // posts que receberam investimento no período, casados com a publicação do Instagram
+  // anúncios do período agrupados pela publicação que impulsionam
   const porPost = new Map();
+  let segConta = 0;
   for (const b of vivas) {
+    segConta += sum(periodRows("account", { meta: b.meta }), (r) => r.follows);
     const midias = new Map((b.organic?.instagram?.media || []).map((x) => [x.id, x]));
     for (const r of periodRows("ad", { meta: b.meta })) {
-      if (!(r.spend > 0)) continue;
-      const ad = b.idx.ads.get(r.ad_id); if (!ad) continue;
-      const mid = ad.creative?.instagram_media_id || ad.creative?.instagram_permalink_url || ad.id;
-      if (!porPost.has(mid)) porPost.set(mid, { mid, ad, midia: midias.get(mid) || null, campanhas: new Set(), anuncios: 0, agg: emptyAgg(), visitas: 0 });
-      const x = porPost.get(mid);
-      x.campanhas.add(b.idx.campaigns.get(r.campaign_id)?.name || r.campaign_id); x.anuncios += 1; addRow(x.agg, r);
-      if (["profile_visit_view", "total_profile_visits"].includes(r.result?.indicator)) x.visitas += r.result.value || 0;
+      if (!(r.spend > 0 || r.follows > 0)) continue;
+      const ad = b.idx.ads.get(r.ad_id);
+      const chave = ad?.creative?.instagram_media_id || ad?.creative?.instagram_permalink_url || r.ad_id;
+      if (!porPost.has(chave)) porPost.set(chave, { ad, midia: midias.get(ad?.creative?.instagram_media_id) || null, spend: 0, follows: 0, visitas: 0, segVisita: 0, ativo: false, camps: new Map() });
+      const x = porPost.get(chave);
+      x.spend += r.spend || 0; x.follows += r.follows || 0;
+      // taxa visita → seguidor só com os anúncios que medem visita ao perfil (a LP não mede)
+      if (VISITA_PERFIL.includes(r.result?.indicator)) { x.visitas += r.result.value || 0; x.segVisita += r.follows || 0; }
+      if (ad?.effective_status === "ACTIVE") x.ativo = true;
+      const nome = b.idx.campaigns.get(r.campaign_id)?.name || r.campaign_id;
+      const c = x.camps.get(nome) || { spend: 0, follows: 0 }; c.spend += r.spend || 0; c.follows += r.follows || 0; x.camps.set(nome, c);
     }
   }
-  const posts = Array.from(porPost.values()).map((x) => ({ ...x, agg: finish(x.agg) })).sort((a, b) => b.agg.spend - a.agg.spend).slice(0, 25);
-  const reels = (x) => /REELS|VIDEO/.test(`${x.midia?.product_type || ""} ${x.midia?.media_type || ""}`) && x.midia?.insights?.follows == null;
-  const tabela = posts.length ? h("div", { class: "table-wrap" }, h("table", {},
-    h("thead", {}, h("tr", {}, h("th", { class: "l", text: "Post" }), h("th", { class: "l", text: "Campanhas" }), h("th", { text: "Investido no período" }),
-      h("th", { text: "Visitas ao perfil (anúncio)" }), h("th", { text: "Custo por visita" }),
-      h("th", { text: "Seguidores do post*" }), h("th", { text: "Visitas do post*" }), h("th", { text: "Alcance do post*" }))),
-    h("tbody", {}, ...posts.map((x) => {
-      const thumb = x.midia?.thumbnail || thumbOf(x.ad), link = x.midia?.permalink || adLink(x.ad), ins = x.midia?.insights || {};
-      const titulo = (x.midia?.caption || x.ad.name || "").slice(0, 90);
-      return h("tr", {},
-        h("td", { class: "name" }, h("div", { class: "post-cell" }, thumb ? h("img", { class: "thumb", src: thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
-          h("div", {}, link ? h("div", { class: "n" }, h("a", { href: link, target: "_blank", rel: "noopener noreferrer", text: titulo || "publicação" })) : h("div", { class: "n", text: titulo }),
-            h("div", { class: "s", text: `${x.midia?.timestamp ? fmt.date(x.midia.timestamp.slice(0, 10)) + " · " : ""}${(x.midia?.product_type || x.ad.creative?.object_type || "").toLowerCase()} · ${x.anuncios} anúncio${x.anuncios > 1 ? "s" : ""}` })))),
-        h("td", { class: "name", text: Array.from(x.campanhas).join(" · ") }),
-        h("td", { text: fmt.brl(x.agg.spend) }),
-        h("td", { text: x.visitas ? fmt.int(x.visitas) : "—" }),
-        h("td", { text: x.visitas ? fmt.brl(x.agg.spend / x.visitas) : "—" }),
-        h("td", { text: ins.follows != null ? fmt.int(ins.follows) : reels(x) ? "não informado (Reels)" : "—" }),
-        h("td", { text: ins.profile_visits != null ? fmt.int(ins.profile_visits) : reels(x) ? "não informado (Reels)" : "—" }),
-        h("td", { text: ins.reach != null ? fmt.int(ins.reach) : "—" }));
-    })))) : h("div", { class: "empty", text: "Nenhum post com investimento no período." });
+  const todos = Array.from(porPost.values());
+  const posts = todos.filter((x) => x.follows > 0).sort((a, b) => b.follows - a.follows || a.spend - b.spend);
+  const semSeg = todos.filter((x) => !(x.follows > 0) && x.spend > 0);
+  const invPosts = sum(posts, (x) => x.spend), segPosts = sum(posts, (x) => x.follows);
+  const melhor = posts.filter((x) => x.follows >= 10 && x.spend > 0).sort((a, b) => a.spend / a.follows - b.spend / b.follows)[0];
+  const tituloDe = (x) => (x.midia?.caption || x.ad?.creative?.body || x.ad?.name || "publicação").replace(/\s+/g, " ").trim();
 
-  return block("Seguidores do Instagram", `${winLbl} · Instagram Insights e posts impulsionados`,
+  // Instagram Insights (todas as origens) só existe para 7, 14 e 30 dias
+  const winIG = { 7: "last_7d", 14: "last_14d", 30: "last_30d" }[state.preset];
+  const segIG = winIG ? sum(igs, (ig) => ig.totals?.[winIG]?.follows) : null, saiIG = winIG ? sum(igs, (ig) => ig.totals?.[winIG]?.unfollows) : null;
+  const temIG = winIG && igs.some((ig) => ok(ig.totals?.[winIG]?.follows));
+
+  const tiles = h("div", { class: "grid c4" },
+    tile({ label: "Seguidores pelos anúncios", value: "+" + fmt.int(segConta), sub: "coluna “Seguidores no Instagram” do Gerenciador · todas as campanhas", accent: true }),
+    tile({ label: "Custo por seguidor", value: fmt.brl(div(invPosts, segPosts)), sub: `${fmt.brl(invPosts)} investidos nos ${fmt.int(posts.length)} posts abaixo` }),
+    tile({ label: "Menor custo por seguidor", value: melhor ? fmt.brl(melhor.spend / melhor.follows) : "—", sub: melhor ? `${tituloDe(melhor).slice(0, 60)} · ${fmt.int(melhor.follows)} seguidores` : "posts com 10 ou mais seguidores" }),
+    tile({ label: "Seguidores do perfil", value: fmt.int(sum(igs, (ig) => ig.followers)),
+      sub: temIG ? `no Instagram: +${fmt.int(segIG)} seguiram · ${fmt.int(saiIG)} deixaram (todas as origens)` : igs.map((ig) => "@" + ig.username).join(", ") }),
+  );
+
+  const linhaK = (rot, val, cls) => h("div", { class: `k${cls ? " " + cls : ""}` }, h("span", { text: rot }), h("b", { text: val }));
+  const curto = (s) => (s.length > 34 ? s.slice(0, 33) + "…" : s);
+  const cards = h("div", { class: "media-grid seg-grid" }, ...posts.slice(0, 24).map((x) => {
+    const thumb = x.midia?.thumbnail || thumbOf(x.ad), link = x.midia?.permalink || adLink(x.ad);
+    const tipo = (x.midia?.product_type || x.ad?.creative?.object_type || "").toLowerCase().replace("share", "post");
+    const data = x.midia?.timestamp ? fmt.date(x.midia.timestamp.slice(0, 10)) : (x.ad?.created_time ? `anúncio de ${fmt.date(x.ad.created_time.slice(0, 10))}` : "");
+    const pic = h("div", { class: "pic" }, thumb ? h("img", { src: thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
+      tipo ? h("span", { class: "type", text: tipo }) : null, x.ativo ? h("span", { class: "type live", text: "ativo" }) : null);
+    const camps = Array.from(x.camps.entries()).filter(([, c]) => c.spend > 0 || c.follows > 0).sort((a, b) => b[1].follows - a[1].follows);
+    return h("div", { class: "media seg" },
+      link ? h("a", { href: link, target: "_blank", rel: "noopener noreferrer", title: tituloDe(x) }, pic) : pic,
+      h("div", { class: "info" },
+        h("div", { class: "d", text: data }),
+        h("div", { class: "t", text: tituloDe(x).slice(0, 70) }),
+        linhaK("Investido", fmt.brl(x.spend)),
+        linhaK("Seguidores (anúncio)", fmt.int(x.follows)),
+        linhaK("Custo por seguidor", fmt.brl(div(x.spend, x.follows)), "hl"),
+        linhaK("Visitas ao perfil", x.visitas ? fmt.int(x.visitas) : "—"),
+        linhaK("Visita → seguidor", x.visitas ? fmt.pct((x.segVisita / x.visitas) * 100) : "—"),
+        h("div", { class: "camps" }, ...camps.map(([nome, c]) => h("div", { class: "camp", title: nome },
+          h("span", { text: curto(nome) }), h("b", { text: camps.length > 1 ? `${fmt.int(c.follows)} · ${c.follows ? fmt.brl(c.spend / c.follows) : "—"}` : "" })))),
+      ));
+  }));
+
+  const nota = h("div", { class: "card note-card" },
+    "Seguidores e investimento vêm do Gerenciador, no mesmo período (atribuição de cada conjunto). ",
+    "Um post usado em mais de uma campanha soma tudo o que foi investido nele; quando é o caso, o card mostra cada campanha com seguidores · custo por seguidor. ",
+    semSeg.length ? `${fmt.int(semSeg.length)} ${semSeg.length > 1 ? "posts com investimento no período não trouxeram" : "post com investimento no período não trouxe"} seguidor (${fmt.brl(sum(semSeg, (x) => x.spend))}).` : "");
+
+  return block("Seguidores pelos anúncios", `${perTxt} · custo por seguidor de cada post impulsionado`,
     tiles,
-    block("Posts impulsionados", "investimento e visitas ao perfil vêm do Gerenciador, no período escolhido; * colunas com asterisco vêm do Instagram, desde a publicação", tabela),
-    h("div", { class: "card note-card" },
-      h("b", { text: "Por que não há “custo por seguidor” por post: " }),
-      "a coluna “Seguidores no Instagram” do Gerenciador (seguidores atribuídos aos anúncios) não é liberada pela API da Meta — testamos as versões v23 a v26 e o campo volta vazio. ",
-      "As colunas com asterisco são o que o Instagram registra para a publicação (todas as origens, desde que foi postada) e não separam o que veio do anúncio. Dividir o investimento por elas daria um custo por seguidor que não bate com o Gerenciador, então o painel não faz essa conta."));
+    posts.length ? cards : h("div", { class: "empty", text: "Nenhum anúncio trouxe seguidor no período." }),
+    nota);
 }
 
 /* ======================================================== seção: legendas */
@@ -2049,6 +2071,7 @@ function renderLegend() {
       ["ThruPlay", "Reproduções de vídeo de 15 s ou até o fim (quando menor)."],
       ["Visualizadores únicos (Facebook)", "A Meta aposentou o Alcance de Página em 15/06/2026 e colocou no lugar “visualizadores únicos de conteúdo”. Não é a mesma conta, por isso o rótulo é outro. O alcance do Instagram e o dos anúncios não foram afetados."],
       ["Orgânico", "Instagram: seguidores, novos seguidores, alcance, visitas ao perfil, contas engajadas, visualizações e métricas por publicação. O alcance diário do Instagram inclui o que veio de anúncio."],
+      ["Seguidores pelos anúncios", "Coluna “Seguidores no Instagram” do Gerenciador: quem passou a seguir o perfil atribuído a um anúncio, pela janela de atribuição do conjunto. Custo por seguidor do post = investido nos anúncios daquele post ÷ seguidores que eles trouxeram, no período escolhido. “Visita → seguidor” usa só os anúncios que medem visita ao perfil."],
     ]))),
     block("Status e qualidade", "", h("div", { class: "card" }, dl([
       ["● Na meta", "Custo por resultado igual ou abaixo da meta — manter."],

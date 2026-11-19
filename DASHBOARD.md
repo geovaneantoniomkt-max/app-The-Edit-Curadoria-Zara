@@ -57,9 +57,13 @@ e confere, sem trocar o painel do cliente. O agendamento diário também roda s�
   (gasto, impressões, cliques, cliques no link, resultados). Diferença acima de 0,5% vira aviso no topo do
   painel e no resumo do workflow (só em %, nunca valores).
 - **Período personalizado** soma os dias: alcance e frequência ficam aproximados e aparecem com "≈".
-- **Seguidores atribuídos aos anúncios** (coluna "Seguidores no Instagram" do Gerenciador) não são liberados
-  pela API pública da Meta — testado nas versões v23 a v26, o campo volta vazio. O painel mostra o que o
-  Instagram registra (seguiram, deixaram de seguir, por publicação de feed) e não estima custo por seguidor.
+- **Seguidores atribuídos aos anúncios** (coluna "Seguidores no Instagram" do Gerenciador) vêm do campo
+  `instagram_profile_follow` da API. Cuidado com o nome: `instagram_profile_follow_v2` é aceito mas volta
+  sempre vazio. Em 19/11/2026 o campo foi conferido com o Gerenciador anúncio a anúncio. Na visão
+  consolidada, o bloco **Seguidores pelos anúncios** agrupa os anúncios pela publicação do Instagram que
+  impulsionam: custo por seguidor = investido no post ÷ seguidores que os anúncios dele trouxeram, no
+  período escolhido. Um post usado em mais de uma campanha soma todo o investimento nele, e o card
+  mostra o detalhe por campanha.
 
 ## Frentes, resultados e metas
 

@@ -945,8 +945,18 @@ def coleta_marca(brand: dict, out_dir: str) -> tuple[bool, dt.date]:
     try:
         midias = []
         try:
-            gastou = {r["ad_id"] for r in meta["daily"] if r.get("spend")}  # noqa: F821 — meta existe se a coleta de anúncios deu certo
-            midias = sorted({(a.get("creative") or {}).get("instagram_media_id") for a in meta["ads"] if a["id"] in gastou} - {None})  # noqa: F821
+            # publicações impulsionadas, das que receberam investimento mais recentemente para as mais antigas
+            # (só as 40 primeiras ganham prévia e métricas do Instagram; as demais usam a miniatura do criativo)
+            ultimo: dict = {}
+            for r in meta["daily"]:  # noqa: F821 — meta existe se a coleta de anúncios deu certo
+                if r.get("spend"):
+                    ultimo[r["ad_id"]] = max(ultimo.get(r["ad_id"], ""), r.get("date") or "")
+            por_midia: dict = {}
+            for a in meta["ads"]:  # noqa: F821
+                mid = (a.get("creative") or {}).get("instagram_media_id")
+                if mid and a["id"] in ultimo:
+                    por_midia[mid] = max(por_midia.get(mid, ""), ultimo[a["id"]])
+            midias = [k for k, _ in sorted(por_midia.items(), key=lambda kv: kv[1], reverse=True)]
         except Exception:  # noqa: BLE001
             midias = []
         organic = fetch_organic(today, m["page_id"], m["ig_user_id"], midias)
