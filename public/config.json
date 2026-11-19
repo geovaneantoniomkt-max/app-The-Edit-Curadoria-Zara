@@ -1,0 +1,63 @@
+{
+  "client": {
+    "name": "The Edit",
+    "segment": "Curadoria de moda · app iOS",
+    "market": "Sul e Sudeste (RS, SC, PR, SP, RJ, BH) · mulheres 35–55",
+    "agency": "Steink Performance"
+  },
+  "brands": [
+    {
+      "id": "theedit",
+      "name": "The Edit",
+      "short": "The Edit",
+      "role": "Curadoria Zara · app iOS, landing page e perfil do Instagram.",
+      "accent": "#3987e5",
+      "layout": "frentes",
+      "meta": {
+        "ad_account_id": "2327717030881984",
+        "ad_account_name": "The Edit",
+        "business_name": "The Edit",
+        "page_id": "733971923143560",
+        "page_name": "The Edit",
+        "ig_user_id": "17841464667685576",
+        "ig_username": "the_edit.br",
+        "history_since": null
+      },
+      "app": {
+        "enabled": true,
+        "name": "The Edit",
+        "platform": "iOS"
+      },
+      "budget": {
+        "meta_monthly": null
+      }
+    }
+  ],
+  "google_ads": {
+    "enabled": false
+  },
+  "clarity": {
+    "enabled": false
+  },
+  "targets": {
+    "cost_per_lpv": null,
+    "cost_per_profile_visit": null,
+    "cost_per_install": null,
+    "cost_per_app_registration": null,
+    "cost_per_purchase": null,
+    "roas_min": null,
+    "cost_per_conversation": null,
+    "cost_per_contact": null,
+    "cost_per_lead": null,
+    "cpm_topo_max": 5,
+    "ctr_min": 1.0,
+    "frequency_max": 2.5,
+    "min_spend_for_alert": 30
+  },
+  "_notas": {
+    "objetivos": "A The Edit roda três frentes no Meta: tráfego para a landing page (resultado = visualização da página de destino), tráfego para o perfil do Instagram (resultado = visita ao perfil, medida pelos cliques no link) e promoção do app iOS (resultado = instalação; cadastro vem do SDK do app).",
+    "metas": "Todas as metas de custo estão em aberto (null) de propósito: nunca foram acordadas com a The Edit. Enquanto forem null o painel mostra o custo sem selo de meta. Podem ser ajustadas aqui (vale para todos) ou no menu lateral (fica salvo só no navegador de quem ajustou).",
+    "verba": "Verba mensal em aberto. Hoje as três campanhas ativas somam R$ 36/dia de orçamento (≈ R$ 1.080/mês); preencha meta_monthly quando a verba for definida.",
+    "app": "Os eventos do app (instalação, cadastro, abertura, conteúdo, lista de desejos...) chegam pelo SDK da Meta e aparecem nas linhas diárias como app_custom_event.*. A seção App só lê o que vem das campanhas de promoção do app."
+  }
+}

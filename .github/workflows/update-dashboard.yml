@@ -1,0 +1,152 @@
+name: Atualizar dashboard
+
+# Roda todo dia às 07:00 (Brasília), manualmente, e quando o código do dashboard muda.
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "public/**"
+      - "functions/**"
+      - "scripts/**"
+      - "wrangler.toml"
+      - ".github/workflows/update-dashboard.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-deploy
+  cancel-in-progress: false
+
+env:
+  CF_PROJECT: ${{ vars.CF_PAGES_PROJECT || 'the-edit-dashboard' }}
+  WRANGLER: wrangler@4.131.1
+  # Só a branch padrão do repositório publica. Em outro branch o workflow coleta e
+  # confere os dados, mas não troca o dashboard que o cliente enxerga.
+  PUBLICA: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A conta, a página e o Instagram ficam em public/config.json, não aqui.
+      - name: Coletar dados do Meta (Ads + orgânico + app)
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ADS_TOKEN || secrets.META_ACCESS_TOKEN }}
+          META_API_VERSION: ${{ vars.META_API_VERSION || 'v23.0' }}
+          OUT_DIR: public/data
+        run: python scripts/fetch_meta.py
+
+      - name: Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      # Senha e chave de sessão vêm dos secrets do GitHub e vão para o projeto no Pages.
+      # O token do Meta NÃO vai: ele só existe aqui no Actions.
+      - name: Preparar o projeto no Cloudflare Pages
+        if: env.PUBLICA == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          if npx --yes "$WRANGLER" pages project list 2>&1 | grep -q " $CF_PROJECT "; then
+            echo "Projeto $CF_PROJECT já existe."
+          else
+            npx --yes "$WRANGLER" pages project create "$CF_PROJECT" --production-branch main
+          fi
+          if [ -n "$DASHBOARD_PASSWORD" ] && [ -n "$SESSION_SECRET" ]; then
+            umask 077
+            file="$RUNNER_TEMP/pages-secrets.json"
+            jq -n --arg pass "$DASHBOARD_PASSWORD" --arg sess "$SESSION_SECRET" \
+              '{DASHBOARD_PASSWORD: $pass, SESSION_SECRET: $sess}' > "$file"
+            npx --yes "$WRANGLER" pages secret bulk "$file" --project-name "$CF_PROJECT"
+            rm -f "$file"
+          else
+            echo "::warning::DASHBOARD_PASSWORD/SESSION_SECRET não estão nos secrets do GitHub; usando os que já estiverem no Pages."
+          fi
+          # versões antigas do painel guardavam o token do Meta no Pages; ele não precisa mais estar lá
+          npx --yes "$WRANGLER" pages secret delete META_ACCESS_TOKEN --project-name "$CF_PROJECT" > /dev/null 2>&1 || true
+
+      - name: Publicar no Cloudflare Pages
+        if: env.PUBLICA == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx --yes "$WRANGLER" pages deploy public
+          --project-name "$CF_PROJECT"
+          --branch main
+          --commit-dirty=true
+
+      - name: Checagem de saúde da coleta
+        if: always()
+        run: |
+          python - <<'PY'
+          import glob, json, os, sys
+          problemas = []
+          metas = sorted(glob.glob("public/data/meta-*.json"))
+          if not metas:
+              problemas.append("Meta: nenhum arquivo gerado")
+          for caminho in metas:
+              m = json.load(open(caminho, encoding="utf-8"))
+              nome = (m.get("brand") or {}).get("name") or os.path.basename(caminho)
+              if not m.get("daily"):
+                  problemas.append(f"Meta/{nome}: zero linhas diarias")
+          for caminho in sorted(glob.glob("public/data/organic-*.json")):
+              o = json.load(open(caminho, encoding="utf-8"))
+              if not o.get("instagram"):
+                  problemas.append(f"Organico/{os.path.basename(caminho)}: Instagram nao coletado — ver avisos no resumo")
+          if problemas:
+              print("A coleta terminou, mas algo nao trouxe dado:\n")
+              for p in problemas:
+                  print(f"  - {p}")
+              print("\nSe o deploy rodou, ele ja aconteceu; este passo falha so para avisar.")
+              sys.exit(1)
+          print("Coleta saudavel: Meta Ads e Instagram trouxeram dados.")
+          PY
+
+      - name: Resumo
+        if: always()
+        run: |
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import glob, json, os
+          print("### Dashboard The Edit\n")
+          if os.environ.get("PUBLICA") != "true":
+              print("> Execução fora da branch padrão: coletou, **não publicou**.\n")
+          else:
+              print(f"Painel: https://{os.environ.get('CF_PROJECT')}.pages.dev\n")
+          achou = False
+          for caminho in sorted(glob.glob("public/data/meta-*.json")):
+              achou = True
+              m = json.load(open(caminho, encoding="utf-8"))
+              nome = (m.get("brand") or {}).get("name") or os.path.basename(caminho)
+              conta = (m.get("account") or {}).get("id")
+              print(f"**{nome}** (conta {conta}) — coletado em {m.get('generated_at')}")
+              print(f"- Campanhas: {len(m.get('campaigns', []))} · Anuncios: {len(m.get('ads', []))} · Linhas diarias: {len(m.get('daily', []))} · desde {(m.get('range') or {}).get('since')}")
+              for w in m.get("warnings", []):
+                  print(f"- :warning: {w}")
+              org = caminho.replace("meta-", "organic-")
+              if os.path.exists(org):
+                  o = json.load(open(org, encoding="utf-8"))
+                  ig, fb = o.get("instagram") or {}, o.get("facebook") or {}
+                  print(f"- Instagram: {'@' + ig.get('username', '') + ' · ' + str(len(ig.get('media', []))) + ' publicacoes' if ig else 'indisponivel'} · Facebook: {fb.get('name') or 'indisponivel'}")
+                  for w in o.get("warnings", []):
+                      print(f"- :warning: organico — {w}")
+              print()
+          if not achou:
+              print("- Coleta do Meta falhou: nenhum meta-*.json gerado")
+          PY

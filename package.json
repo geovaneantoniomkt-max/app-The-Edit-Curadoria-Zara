@@ -2,18 +2,13 @@
   "name": "the-edit-dashboard",
   "version": "1.0.0",
   "private": true,
-  "description": "Dashboard de performance da The Edit (Meta Ads + App) no Cloudflare Pages.",
-  "type": "module",
+  "description": "Dashboard de performance The Edit — Steink Performance",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs && wrangler pages dev --port 8787 --ip 127.0.0.1",
-    "dev:mock": "node dev/mock-graph.mjs",
-    "check": "node --check src/index.js && node --check src/auth.js && node --check src/meta.js && node --check src/metrics.js && node --check src/report.js && node --check public/app.js && node --check scripts/build.mjs"
+    "fetch": "python scripts/fetch_meta.py",
+    "dev": "wrangler pages dev public --compatibility-date=2026-09-01 --port 8788",
+    "deploy": "wrangler pages deploy public --project-name the-edit-dashboard --branch main --commit-dirty=true"
   },
   "devDependencies": {
-    "wrangler": "4.45.0"
-  },
-  "engines": {
-    "node": ">=20"
+    "wrangler": "^4.0.0"
   }
 }

@@ -1,6 +1,0 @@
-# Copie para .dev.vars para rodar localmente (npm run dev).
-# Com o mock (npm run dev:mock) não precisa de token real:
-META_GRAPH_BASE=http://127.0.0.1:9999
-META_ACCESS_TOKEN=token-de-teste
-DASHBOARD_PASSWORD=troque-esta-senha
-SESSION_SECRET=uma-string-aleatoria-longa

@@ -1,7 +1,37 @@
+# Dados gerados pelo coletor — NUNCA commitar (o repositório pode ser público)
+public/data/*
+!public/data/.gitkeep
+
+# Histórico do Clarity (vive no cache do Actions, não no git)
+.clarity-cache/
+
+# Segredos locais
+.env
+.env.*
+.dev.vars
+*.token
+
+# Ferramentas
 node_modules/
 .wrangler/
-.dev.vars
-.env
-*.log
+__pycache__/
+*.pyc
 .DS_Store
+Thumbs.db
+
+# Pacotes de entrega — gerados a partir de pastas já versionadas, não vão no histórico
+*.zip
+
+# Recortes de foto gerados pelos builds das apresentações
+apresentacao/**/.cache/
+
+# Gerados pelo build dos criativos (caminhos absolutos da máquina)
+criativos/black-friday/html/
+criativos/black-friday/jobs.json
+
+# Gerados pelo documento de aprovação do Google Ads
+google-ads/aprovacao/build/
+google-ads/qualidade/build/
+
+# build antigo
 dist/
