@@ -635,6 +635,14 @@ def fetch_ads_data(account_id: str, history_since: str | None = None) -> dict:
 # Orgânico: Página do Facebook + Instagram
 # ----------------------------------------------------------------------------
 
+def dia_do_valor_fb(end_time: str | None) -> str:
+    """Página do Facebook: o end_time de um valor diário marca o FIM do dia (sonda de nov/2026:
+    pedido 16→19 voltou end_time 17, 18 e 19). O dia medido é o anterior."""
+    if not end_time:
+        return ""
+    return (dt.date.fromisoformat(end_time[:10]) - dt.timedelta(days=1)).isoformat()
+
+
 def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
     out: dict = {
         "generated_at": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -669,8 +677,13 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
               "page_posts_impressions_unique", "page_impressions"]),
             ("page_post_engagements",
              ["page_post_engagements", "page_total_actions"]),
+            # NUNCA usar page_follows aqui: é o TOTAL de seguidores em cada dia, não os novos.
+            # Somar esse total por 30 dias multiplicava o número de seguidores por 30.
             ("page_daily_follows_total",
-             ["page_daily_follows_total", "page_fan_adds", "page_follows"]),
+             ["page_daily_follows_total", "page_daily_follows", "page_fan_adds"]),
+            # total de seguidores por dia (cumulativo): o painel usa só a VARIAÇÃO entre o
+            # primeiro e o último dia da janela, nunca a soma.
+            ("page_follows", ["page_follows"]),
             ("page_views_total",
              ["page_views_total", "page_views"]),
         ]
@@ -686,7 +699,7 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
                         }, token=page_token, retries=2)
                         for d in res.get("data", []):
                             for v in d.get("values", []):
-                                series.append({"date": (v.get("end_time") or "")[:10], "value": inum(v.get("value"))})
+                                series.append({"date": dia_do_valor_fb(v.get("end_time")), "value": inum(v.get("value"))})
                     fb["daily"][chave] = series
                     if m != chave:
                         log(f"  Facebook: '{chave}' saiu do ar, usando '{m}' no lugar")
@@ -743,16 +756,20 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
             except ApiError as e:
                 out["warnings"].append(f"Instagram métrica {m}: {e}")
         # totais por janela (metric_type=total_value)
-        total_metrics = "views,profile_views,accounts_engaged,website_clicks,total_interactions,likes,comments,shares,saves,replies,follows_and_unfollows"
-        # 90 dias nao cabe: a Meta limita total_value a 30 dias por chamada,
-        # e o painel so usa 7 e 30 de qualquer forma
-        for label, span in (("last_7d", 7), ("last_30d", 30)):
+        # `reach` com total_value é o alcance ÚNICO da janela (o que o Instagram mostra).
+        # A soma do alcance diário passa disso (na sonda de nov/2026: único = 65,7% da soma).
+        total_metrics = "reach,views,profile_views,accounts_engaged,website_clicks,total_interactions,likes,comments,shares,saves,replies"
+        # 90 dias nao cabe: a Meta limita total_value a 30 dias por chamada.
+        # As janelas terminam ontem, como os atalhos do painel (until é exclusivo).
+        for label, span in (("last_7d", 7), ("last_14d", 14), ("last_30d", 30)):
             try:
                 res = api(f"{ig_id}/insights", {
                     "metric": total_metrics, "period": "day", "metric_type": "total_value",
                     "since": (today - dt.timedelta(days=span)).isoformat(), "until": today.isoformat(),
                 }, token=ig_tok)
                 ig["totals"][label] = {d.get("name"): inum((d.get("total_value") or {}).get("value")) for d in res.get("data", [])}
+                ig["totals"][label]["since"] = (today - dt.timedelta(days=span)).isoformat()
+                ig["totals"][label]["until"] = (today - dt.timedelta(days=1)).isoformat()
             except ApiError as e:
                 # tenta um subconjunto mais conservador
                 try:
@@ -763,14 +780,31 @@ def fetch_organic(today: dt.date, page_id: str, ig_id: str) -> dict:
                     ig["totals"][label] = {d.get("name"): inum((d.get("total_value") or {}).get("value")) for d in res.get("data", [])}
                 except ApiError as e2:
                     out["warnings"].append(f"Instagram totais {label}: {e2}")
-        # série diária de visitas ao perfil / contas engajadas (30 dias, 1 chamada por dia)
-        pv, ae, vw = [], [], []
-        for i in range(30, -1, -1):
-            d = today - dt.timedelta(days=i)
+            # seguiram × deixaram de seguir (follow_type: FOLLOWER = seguiram, NON_FOLLOWER =
+            # deixaram de seguir ou saíram do Instagram). FOLLOWER bate 100% com a soma de follower_count.
             try:
                 res = api(f"{ig_id}/insights", {
+                    "metric": "follows_and_unfollows", "period": "day", "metric_type": "total_value", "breakdown": "follow_type",
+                    "since": (today - dt.timedelta(days=span)).isoformat(), "until": today.isoformat(),
+                }, token=ig_tok)
+                dims = {}
+                for d in res.get("data", []):
+                    for b in (d.get("total_value") or {}).get("breakdowns", []):
+                        for it in b.get("results", []):
+                            dims[(it.get("dimension_values") or [""])[0]] = inum(it.get("value"))
+                ig["totals"].setdefault(label, {})["follows"] = dims.get("FOLLOWER", 0)
+                ig["totals"][label]["unfollows"] = dims.get("NON_FOLLOWER", 0)
+            except ApiError as e:
+                out["warnings"].append(f"Instagram seguiram/deixaram de seguir {label}: {e}")
+        # série diária de visitas ao perfil / contas engajadas (30 dias, 1 chamada por dia)
+        pv, ae, vw = [], [], []
+        for i in range(30, 0, -1):  # 30 dias completos, até ontem
+            d = today - dt.timedelta(days=i)
+            try:
+                # since=until devolve vazio (sonda de nov/2026); o dia d é [d, d+1)
+                res = api(f"{ig_id}/insights", {
                     "metric": "profile_views,accounts_engaged,views", "period": "day", "metric_type": "total_value",
-                    "since": d.isoformat(), "until": d.isoformat(),
+                    "since": d.isoformat(), "until": (d + dt.timedelta(days=1)).isoformat(),
                 }, token=ig_tok, retries=2)
                 vals = {x.get("name"): inum((x.get("total_value") or {}).get("value")) for x in res.get("data", [])}
                 pv.append({"date": d.isoformat(), "value": vals.get("profile_views", 0)})
